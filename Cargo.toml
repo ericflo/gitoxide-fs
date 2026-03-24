@@ -1,0 +1,66 @@
+[package]
+name = "gitoxide-fs"
+version = "0.1.0"
+edition = "2021"
+description = "A blazing-fast FUSE filesystem backed by git. Every file edit becomes a commit."
+license = "MIT"
+repository = "https://github.com/ericflo/gitoxide-fs"
+readme = "README.md"
+keywords = ["fuse", "git", "filesystem", "agentic"]
+categories = ["filesystem", "development-tools"]
+
+[[bin]]
+name = "gitoxide-fs"
+path = "src/main.rs"
+
+[lib]
+name = "gitoxide_fs"
+path = "src/lib.rs"
+
+[dependencies]
+# FUSE bindings
+fuser = { version = "0.15", features = ["abi-7-31"] }
+
+# Git backend (gitoxide — pure Rust git)
+gix = { version = "0.72", features = ["blocking-network-client"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Configuration
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Concurrency
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+
+# Byte handling
+bytes = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Time
+chrono = "0.4"
+
+# Libc for FUSE types
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+rand = "0.9"
+assert_cmd = "2"
+predicates = "3"
+serial_test = "3"
+serde_json = "1"
+
+[[bench]]
+name = "throughput"
+harness = false
