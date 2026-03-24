@@ -105,8 +105,12 @@ pub struct PerformanceConfig {
 
 impl Config {
     /// Load configuration from a TOML file.
-    pub fn from_file(_path: &std::path::Path) -> crate::Result<Self> {
-        todo!("Config::from_file not implemented")
+    pub fn from_file(path: &std::path::Path) -> crate::Result<Self> {
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| crate::Error::Io(e))?;
+        let config: Self = toml::from_str(&contents)
+            .map_err(|e| crate::Error::Config(e.to_string()))?;
+        Ok(config)
     }
 
     /// Create a minimal config for the given repo and mount point.
