@@ -61,7 +61,9 @@ jobs:
       - name: Run unit and integration tests (excluding FUSE mount tests)
         run: |
           cargo test --lib -- --test-threads=1
-          cargo test --test test_agentic --test test_cli --test test_concurrency --test test_config --test test_edge_cases --test test_error_recovery --test test_file_operations --test test_fork_merge --test test_git_integration --test test_links --test test_xattr -- --test-threads=1
+          cargo test --test test_agentic --test test_cli --test test_concurrency --test test_config --test test_e2e_smoke --test test_edge_cases --test test_error_recovery --test test_file_operations --test test_fork_merge --test test_git_integration --test test_links --test test_xattr -- --test-threads=1
+      - name: Verify crate packaging
+        run: cargo package --list
 
   mount-tests:
     name: Mount Integration Tests
