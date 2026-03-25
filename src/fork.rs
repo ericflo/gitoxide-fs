@@ -2,10 +2,14 @@
 //!
 //! Implements the fork/merge paradigm for parallel agent work.
 //! Each fork creates a new git branch, and merging reconciles changes.
+//! Fork metadata is persisted to `.gitoxide-fs/forks.json` alongside the repo
+//! so that fork state survives across CLI invocations and process restarts.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
+
+use serde::{Deserialize, Serialize};
 
 use crate::config::MergeStrategy;
 use crate::error::{Error, Result};
@@ -66,8 +70,8 @@ pub enum ConflictType {
     DirectoryFile,
 }
 
-/// Internal metadata tracked for each fork.
-#[derive(Debug, Clone)]
+/// Internal metadata tracked for each fork, persisted to disk as JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ForkMetadata {
     /// The branch name for this fork.
     branch: String,
@@ -80,17 +84,25 @@ struct ForkMetadata {
 }
 
 /// Manages fork lifecycle — creation, listing, merging, deletion.
+///
+/// Fork metadata is persisted to `.gitoxide-fs/forks.json` in the repository
+/// root directory, ensuring fork state survives across process restarts.
 pub struct ForkManager {
     backend: GitBackend,
     forks: RwLock<HashMap<String, ForkMetadata>>,
+    /// Path to the JSON file storing fork metadata.
+    metadata_path: PathBuf,
 }
 
 impl ForkManager {
-    /// Create a new ForkManager.
+    /// Create a new ForkManager, loading any persisted fork metadata from disk.
     pub fn new(backend: GitBackend) -> Self {
+        let metadata_path = backend.repo_path().join(".gitoxide-fs").join("forks.json");
+        let forks = Self::load_from_disk(&metadata_path).unwrap_or_default();
         Self {
             backend,
-            forks: RwLock::new(HashMap::new()),
+            forks: RwLock::new(forks),
+            metadata_path,
         }
     }
 
@@ -109,7 +121,7 @@ impl ForkManager {
 
         // Check for duplicate fork names in our tracking.
         {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             if forks.contains_key(name) {
                 return Err(Error::AlreadyExists(format!("fork '{}'", name)));
             }
@@ -126,9 +138,10 @@ impl ForkManager {
         };
 
         {
-            let mut forks = self.forks.write().unwrap();
+            let mut forks = self.write_forks()?;
             forks.insert(name.to_string(), metadata);
         }
+        self.persist()?;
 
         Ok(ForkInfo {
             id: name.to_string(),
@@ -146,7 +159,7 @@ impl ForkManager {
         let parent_branch = self.backend.current_branch()?;
 
         {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             if forks.contains_key(name) {
                 return Err(Error::AlreadyExists(format!("fork '{}'", name)));
             }
@@ -162,9 +175,10 @@ impl ForkManager {
         };
 
         {
-            let mut forks = self.forks.write().unwrap();
+            let mut forks = self.write_forks()?;
             forks.insert(name.to_string(), metadata);
         }
+        self.persist()?;
 
         Ok(ForkInfo {
             id: name.to_string(),
@@ -181,7 +195,7 @@ impl ForkManager {
     pub fn create_nested_fork(&self, parent_fork: &str, name: &str) -> Result<ForkInfo> {
         // Find the parent fork's branch and its current commit.
         let parent_commit = {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             let parent_meta = forks
                 .get(parent_fork)
                 .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", parent_fork)))?;
@@ -196,7 +210,7 @@ impl ForkManager {
         };
 
         {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             if forks.contains_key(name) {
                 return Err(Error::AlreadyExists(format!("fork '{}'", name)));
             }
@@ -212,9 +226,10 @@ impl ForkManager {
         };
 
         {
-            let mut forks = self.forks.write().unwrap();
+            let mut forks = self.write_forks()?;
             forks.insert(name.to_string(), metadata);
         }
+        self.persist()?;
 
         Ok(ForkInfo {
             id: name.to_string(),
@@ -229,7 +244,7 @@ impl ForkManager {
 
     /// List all active forks.
     pub fn list_forks(&self) -> Result<Vec<ForkInfo>> {
-        let forks = self.forks.read().unwrap();
+        let forks = self.read_forks()?;
         let mut result = Vec::new();
         for (name, meta) in forks.iter() {
             let commits_ahead = self.count_commits_ahead(&meta.branch, &meta.fork_point);
@@ -249,7 +264,7 @@ impl ForkManager {
 
     /// Get info about a specific fork.
     pub fn get_fork(&self, name: &str) -> Result<ForkInfo> {
-        let forks = self.forks.read().unwrap();
+        let forks = self.read_forks()?;
         let meta = forks
             .get(name)
             .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
@@ -278,7 +293,7 @@ impl ForkManager {
     ) -> Result<MergeResult> {
         // Validate the fork exists and isn't already merged.
         let (parent_branch, fork_branch, fork_point) = {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             let meta = forks
                 .get(name)
                 .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
@@ -315,11 +330,12 @@ impl ForkManager {
             // For ThreeWay with conflicts, report the conflicts.
             // Mark as merged so it can't be merged again.
             {
-                let mut forks = self.forks.write().unwrap();
+                let mut forks = self.write_forks()?;
                 if let Some(meta) = forks.get_mut(name) {
                     meta.merged = true;
                 }
             }
+            self.persist()?;
             return Ok(MergeResult {
                 commit_id: parent_commit.clone(),
                 had_conflicts: true,
@@ -360,11 +376,12 @@ impl ForkManager {
 
         // Mark as merged.
         {
-            let mut forks = self.forks.write().unwrap();
+            let mut forks = self.write_forks()?;
             if let Some(meta) = forks.get_mut(name) {
                 meta.merged = true;
             }
         }
+        self.persist()?;
 
         Ok(MergeResult {
             commit_id,
@@ -377,7 +394,7 @@ impl ForkManager {
     /// Abandon a fork (delete the branch).
     pub fn abandon_fork(&self, name: &str) -> Result<()> {
         {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             if !forks.contains_key(name) {
                 return Err(Error::NotFound(format!("fork '{}' not found", name)));
             }
@@ -385,16 +402,17 @@ impl ForkManager {
 
         // Delete the git branch.
         let branch_name = {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             forks[name].branch.clone()
         };
         self.backend.delete_branch(&branch_name)?;
 
         // Remove from tracking.
         {
-            let mut forks = self.forks.write().unwrap();
+            let mut forks = self.write_forks()?;
             forks.remove(name);
         }
+        self.persist()?;
 
         Ok(())
     }
@@ -402,7 +420,7 @@ impl ForkManager {
     /// Check if a fork can be merged cleanly (dry run).
     pub fn can_merge(&self, name: &str) -> Result<bool> {
         let (parent_branch, fork_branch, fork_point) = {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             let meta = forks
                 .get(name)
                 .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
@@ -434,7 +452,7 @@ impl ForkManager {
     /// Get the diff between a fork and its parent.
     pub fn fork_diff(&self, name: &str) -> Result<String> {
         let (parent_branch, fork_branch) = {
-            let forks = self.forks.read().unwrap();
+            let forks = self.read_forks()?;
             let meta = forks
                 .get(name)
                 .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
@@ -452,13 +470,52 @@ impl ForkManager {
         self.backend.diff(&parent_commit, &fork_commit)
     }
 
+    // ======================== Persistence =====================================
+
+    /// Load fork metadata from a JSON file on disk.
+    fn load_from_disk(path: &PathBuf) -> Option<HashMap<String, ForkMetadata>> {
+        let data = std::fs::read_to_string(path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    /// Persist current fork metadata to disk.
+    fn persist(&self) -> Result<()> {
+        let forks = self.read_forks()?;
+        // Ensure the parent directory exists.
+        if let Some(parent) = self.metadata_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(&*forks)
+            .map_err(|e| Error::Fork(format!("failed to serialize fork metadata: {}", e)))?;
+        std::fs::write(&self.metadata_path, json)?;
+        Ok(())
+    }
+
+    // ======================== RwLock helpers ==================================
+
+    /// Acquire read lock on forks, converting poisoned lock to an error.
+    fn read_forks(&self) -> Result<std::sync::RwLockReadGuard<'_, HashMap<String, ForkMetadata>>> {
+        self.forks
+            .read()
+            .map_err(|_| Error::Fork("fork metadata lock poisoned".into()))
+    }
+
+    /// Acquire write lock on forks, converting poisoned lock to an error.
+    fn write_forks(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, HashMap<String, ForkMetadata>>> {
+        self.forks
+            .write()
+            .map_err(|_| Error::Fork("fork metadata lock poisoned".into()))
+    }
+
     // ======================== Internal helpers ==============================
 
     /// Resolve a branch name to its commit OID. Handles both tracked forks
     /// (which might be parent forks) and regular branches.
     fn resolve_branch_commit(&self, branch: &str) -> Result<String> {
         // First check if this is a tracked fork — use its branch name.
-        let forks = self.forks.read().unwrap();
+        let forks = self.read_forks()?;
         if let Some(meta) = forks.get(branch) {
             return self.backend.branch_commit_oid(&meta.branch);
         }
