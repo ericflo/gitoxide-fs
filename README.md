@@ -1,180 +1,134 @@
-# gitoxide-fs
+# gofs — git-backed FUSE filesystem
 
 [![CI](https://github.com/ericflo/gitoxide-fs/actions/workflows/ci.yml/badge.svg)](https://github.com/ericflo/gitoxide-fs/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A blazing-fast FUSE filesystem backed by git, written in Rust. Every file edit becomes a git commit transparently.
-
-## Why?
-
-**gitoxide-fs** is designed as a core primitive for agentic systems. Give an agent a mountpoint, let it work, and get a complete git history of everything it did — every file created, every edit made, every decision captured as a commit.
-
-```
-agent workspace/  ←  this is a FUSE mount backed by a git repo
-├── src/
-│   ├── main.rs       ← agent writes this file → automatic git commit
-│   └── lib.rs        ← agent modifies this → another commit
-├── tests/
-│   └── test.rs       ← agent creates test → commit
-└── Cargo.toml        ← agent edits config → commit
-```
-
-After the agent finishes, you have a full `git log` of its entire thought process, replayable and diffable.
-
-## Key Features
-
-- **Transparent git commits**: Every file write becomes a git commit (with configurable batching/debouncing)
-- **Fork/merge paradigm**: Multiple agents can work in parallel on branches, then merge their results
-- **Pure Rust**: Built on [gitoxide](https://github.com/Byron/gitoxide) (gix) and [fuser](https://github.com/cberner/fuser) — no shelling out to `git`
-- **High performance**: In-memory caching, async I/O, configurable tuning
-- **Full POSIX semantics**: Supports files, directories, symlinks, permissions, xattrs
-- **Checkpoint/rollback**: Agents can save named checkpoints and rollback on failure
-- **Read-only mode**: Mount existing repos for safe browsing
-- **Configurable**: TOML config files, CLI flags, environment variable overrides
-
-## Installation
-
-### Prerequisites
-
-gitoxide-fs requires FUSE 3 support on your system:
-
-- **Debian/Ubuntu**: `sudo apt-get install libfuse3-dev fuse3`
-- **Fedora/RHEL**: `sudo dnf install fuse3-devel fuse3`
-- **Arch Linux**: `sudo pacman -S fuse3`
-- **macOS**: Install [macFUSE](https://osxfuse.github.io/), then `brew install libfuse`
-
-### Build from source
+Mount any git repo as a filesystem. Every file you touch becomes a commit — automatically.
 
 ```bash
+gofs mount ./my-repo /mnt/work
+
+echo "hello" > /mnt/work/greeting.txt    # → git commit
+mkdir /mnt/work/src                       # → git commit
+echo "fn main() {}" > /mnt/work/src/main.rs  # → git commit
+
+git -C ./my-repo log --oneline
+# a1b2c3d Auto-commit: add src/main.rs
+# e4f5g6h Auto-commit: add src
+# i7j8k9l Auto-commit: add greeting.txt
+```
+
+Built for **agentic AI systems**: give an agent a mountpoint, let it work, get a full git history of everything it did. Fork branches for parallel agents. Merge their results. Roll back mistakes. All through the filesystem — no git commands needed.
+
+## Why gofs?
+
+AI agents are writing more and more code autonomously. But tracking what they do — and undoing it when things go wrong — is painful. Git is the perfect audit trail, but agents shouldn't have to think about `git add` and `git commit`.
+
+**gofs makes git invisible.** The agent just writes files. Every change is captured, diffable, replayable, and reversible. Multiple agents can work in parallel on isolated forks and merge their results when done.
+
+| Without gofs | With gofs |
+|---|---|
+| Agent writes files, you hope nothing breaks | Every change is a git commit with full diff |
+| Rollback = delete everything, start over | `gofs rollback <commit>` |
+| Parallel agents = conflict nightmare | Each agent gets an isolated fork, merge when done |
+| "What did the agent change?" = mystery | `git log --oneline` |
+
+## Install
+
+**Prerequisites:** FUSE 3 — `sudo apt install libfuse3-dev fuse3` (Debian/Ubuntu), `sudo dnf install fuse3-devel` (Fedora), `sudo pacman -S fuse3` (Arch), or [macFUSE](https://osxfuse.github.io/) on macOS.
+
+```bash
+# From source
 git clone https://github.com/ericflo/gitoxide-fs.git
 cd gitoxide-fs
-cargo build --release
-
-# The binary is at target/release/gofs
-# Optionally install it system-wide:
 cargo install --path .
-```
 
-### From crates.io (coming soon)
-
-```bash
+# Or from crates.io (coming soon)
 cargo install gitoxide-fs
 ```
 
-## Quick Start
+## Quick start
 
 ```bash
-# 1. Create a new git repo (or use an existing one)
-mkdir my-project && cd my-project && git init
-echo "# My Project" > README.md && git add . && git commit -m "init"
-
-# 2. Create a mount point
+# Set up a repo and mount point
+mkdir my-repo && cd my-repo && git init
+echo "# hello" > README.md && git add . && git commit -m "init"
 mkdir /tmp/workspace
 
-# 3. Mount the repo
-gofs mount --repo ./my-project --mount /tmp/workspace
+# Mount it
+gofs mount ./my-repo /tmp/workspace
 
-# 4. Work normally — every change becomes a git commit
-echo "fn main() {}" > /tmp/workspace/main.rs
-mkdir /tmp/workspace/src
-echo "pub fn hello() -> &'static str { \"world\" }" > /tmp/workspace/src/lib.rs
+# Work normally — everything is committed automatically
+echo "fn main() { println!(\"hello\"); }" > /tmp/workspace/main.rs
+cat /tmp/workspace/main.rs   # reads work like a normal filesystem
 
-# 5. Check the git log — commits were created automatically
-cd my-project && git log --oneline
-# abc1234 Auto-commit: add src/lib.rs
-# def5678 Auto-commit: add main.rs
-# 9876543 init
+# Check the history
+git log --oneline
+# → Auto-commit: add main.rs
+# → init
 
-# 6. Unmount when done
-gofs unmount --mount /tmp/workspace
+# Done
+gofs unmount /tmp/workspace
 ```
 
-## Agentic Usage
+## Parallel agents with fork/merge
 
-The real power of gitoxide-fs is enabling multiple agents to work in parallel with full isolation and merge capabilities:
+This is the killer feature. Multiple agents work on isolated branches simultaneously, then merge:
+
+```
+main ────●──────────●──────────●──── merged result
+          \                   /
+           ● agent-1 work ──●       (auto-merged)
+            \
+             ● agent-2 work ──●     (merged separately)
+```
 
 ```bash
 # Mount the repo
-gofs mount --repo ./project --mount /mnt/work
+gofs mount ./project /mnt/work
 
-# Agent 1: fork, work, merge
-gofs fork create --mount /mnt/work --name agent-1-task
-# Agent 1 writes files to /mnt/work (now on the fork branch)...
-# When done:
-gofs fork merge --mount /mnt/work --name agent-1-task
+# Agent 1 gets a fork
+gofs fork create agent-1 --repo ./project
+# Agent 1 works on files...
+gofs fork merge agent-1 --repo ./project
 
-# Agent 2: fork from the same point, work in parallel
-gofs fork create --mount /mnt/work --name agent-2-task
+# Agent 2 works in parallel
+gofs fork create agent-2 --repo ./project
 # Agent 2 works independently...
-gofs fork merge --mount /mnt/work --name agent-2-task --strategy three-way
+gofs fork merge agent-2 --repo ./project --strategy ours
 
-# List all forks
-gofs fork list --mount /mnt/work
-
-# Abandon a fork that didn't work out
-gofs fork abandon --mount /mnt/work --name failed-experiment
+# See all forks
+gofs fork list --repo ./project
 ```
 
-Each fork is a git branch. Merging uses configurable strategies (`three-way`, `ours`, `theirs`, `rebase`). Conflicts are detected and reported.
+Merge strategies: `three-way` (default), `ours`, `theirs`, `rebase`. Conflicts are detected and reported.
 
-### Checkpoints and Rollback
+## Checkpoints and rollback
 
-Agents can save named checkpoints and rollback if something goes wrong:
+Save named snapshots. Roll back when things go wrong.
 
 ```bash
 # Save a checkpoint before risky work
-gofs checkpoint --mount /mnt/work --name before-refactor
+gofs checkpoint before-refactor --repo ./project
 
-# If things go wrong, rollback
-gofs rollback --mount /mnt/work --commit <commit-id>
-```
-
-## The Fork/Merge Paradigm
-
-gitoxide-fs treats git branches as lightweight "forks" that agents can create, work on, and merge back:
-
-```
-main ─────●────────●────────●─────── (production state)
-           \                /
-            ● agent-1-fork ● ──── (agent 1's work, auto-merged)
-             \
-              ● agent-2-fork ● ── (agent 2's parallel work)
-```
-
-Conflicts are detected and can be resolved with configurable strategies (`three-way`, `ours`, `theirs`, `rebase`).
-
-## Usage
-
-```bash
-# Mount a git repo
-gofs mount --repo ./my-project --mount /mnt/workspace
-
-# Mount read-only
-gofs mount --repo ./my-project --mount /mnt/workspace --read-only
-
-# Mount with custom settings
-gofs mount --repo ./my-project --mount /mnt/workspace \
-  --debounce-ms 1000 \
-  --no-auto-commit \
-  --daemon
-
-# Check status
-gofs status --mount /mnt/workspace
-
-# Create a checkpoint
-gofs checkpoint --mount /mnt/workspace --name "before-refactor"
-
-# Rollback to a checkpoint
-gofs rollback --mount /mnt/workspace --commit abc123
-
-# Unmount
-gofs unmount --mount /mnt/workspace
+# Something went wrong? Roll back
+gofs rollback <commit-id> --repo ./project
 ```
 
 ## Configuration
 
-Create a `config.toml`:
+gofs works with zero configuration, but everything is tunable via CLI flags or a TOML config file:
+
+```bash
+# CLI flags
+gofs mount ./repo /mnt/work --debounce-ms 1000 --no-auto-commit --verbose
+
+# Or use a config file
+gofs mount ./repo /mnt/work --config gofs.toml
+```
 
 ```toml
+# gofs.toml
 repo_path = "/path/to/repo"
 mount_point = "/mnt/workspace"
 read_only = false
@@ -182,10 +136,10 @@ log_level = "info"
 
 [commit]
 auto_commit = true
-debounce_ms = 500        # Wait 500ms after last write before committing
-max_batch_size = 100     # Force commit after 100 pending changes
-author_name = "agent-1"
-author_email = "agent@system.local"
+debounce_ms = 500        # batch rapid writes into one commit
+max_batch_size = 100     # force commit after 100 pending changes
+author_name = "my-agent"
+author_email = "agent@example.com"
 
 [fork]
 enabled = true
@@ -194,84 +148,97 @@ merge_strategy = "ThreeWay"  # ThreeWay, Ours, Theirs, Rebase
 [performance]
 cache_size_bytes = 268435456  # 256 MB
 worker_threads = 4
-large_file_threshold = 10485760  # 10 MB
 ```
 
-## Examples
+### Commit batching
 
-The `examples/` directory contains runnable examples demonstrating key features:
+gofs doesn't commit on every single `write()` syscall. Rapid successive writes are batched:
 
-- **[basic_mount.rs](examples/basic_mount.rs)** — Configure and mount a git-backed filesystem
-- **[fork_workflow.rs](examples/fork_workflow.rs)** — Multi-agent fork/merge paradigm with conflict resolution strategies
-- **[auto_commit.rs](examples/auto_commit.rs)** — Tune commit batching and debounce for different workloads
+1. A write happens → file is marked dirty
+2. After `debounce_ms` of silence (default 500ms) → all dirty files are committed together
+3. If `max_batch_size` pending changes accumulate before the timer → commit immediately
 
-```bash
-# Run an example
-cargo run --example basic_mount -- /path/to/repo /path/to/mount
-cargo run --example fork_workflow
-cargo run --example auto_commit
+This means `cp -r big-project/ /mnt/work/` produces a small number of commits, not thousands.
+
+## CLI reference
+
 ```
+gofs mount <repo> <mountpoint> [OPTIONS]
+    --read-only          Mount in read-only mode
+    --daemon, -d         Run in background
+    --config, -c <file>  Config file path
+    --debounce-ms <ms>   Auto-commit debounce delay (default: 500)
+    --no-auto-commit     Disable auto-commit
+    --verbose, -v        Debug logging
+
+gofs unmount <mountpoint>
+
+gofs status <path>
+
+gofs fork create <name> --repo <path> [--at <commit>]
+gofs fork list --repo <path>
+gofs fork merge <name> --repo <path> [--strategy <strategy>]
+gofs fork abandon <name> --repo <path>
+
+gofs checkpoint <name> --repo <path>
+gofs rollback <commit> --repo <path>
+```
+
+## Library usage
+
+gofs is also a Rust library (`gitoxide_fs`):
+
+```rust
+use gitoxide_fs::{Config, GitFs, GitBackend, ForkManager};
+
+// Configure and mount
+let config = Config::new("./my-repo".into(), "/mnt/work".into());
+let gitfs = GitFs::new(config)?;
+gitfs.mount(&"/mnt/work".into())?;
+
+// Fork management
+let backend = GitBackend::open(&config)?;
+let manager = ForkManager::new(backend);
+let fork = manager.create_fork("agent-1")?;
+// ... agent works ...
+let result = manager.merge_fork("agent-1")?;
+```
+
+See the [`examples/`](examples/) directory for complete runnable examples:
+- [`basic_mount.rs`](examples/basic_mount.rs) — Configuration and mounting
+- [`fork_workflow.rs`](examples/fork_workflow.rs) — Multi-agent fork/merge patterns
+- [`auto_commit.rs`](examples/auto_commit.rs) — Tuning commit batching for different workloads
 
 ## Architecture
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   FUSE Layer │────▶│  Git Backend  │────▶│  Repository  │
-│  (fuser)     │     │  (gitoxide)   │     │  (.git/)     │
+│  FUSE Layer  │────▶│  Git Backend  │────▶│  Repository  │
+│   (fuser)    │     │  (gitoxide)   │     │   (.git/)    │
 └──────────────┘     └──────────────┘     └──────────────┘
-       │                    │                     │
-       │              ┌─────┴─────┐          ┌────┴────┐
-       │              │  Commit   │          │ Objects  │
-       │              │  Batcher  │          │  Store   │
-       │              └───────────┘          └─────────┘
-       │
-  ┌────┴────┐
-  │  Fork   │
-  │ Manager │
-  └─────────┘
+       │                    │
+  ┌────┴────┐         ┌────┴─────┐
+  │  Fork   │         │  Commit  │
+  │ Manager │         │ Batcher  │
+  └─────────┘         └──────────┘
 ```
 
-- **FUSE Layer** (`src/fs.rs`): Implements `fuser::Filesystem`, translating POSIX operations to git operations
-- **Git Backend** (`src/git.rs`): Wraps gitoxide for all git operations
-- **Fork Manager** (`src/fork.rs`): Manages branch-based parallelism for agent workflows
-- **Config** (`src/config.rs`): TOML-based configuration with sensible defaults
-- **CLI** (`src/main.rs`): clap-based command-line interface
+- **Pure Rust** — built on [gitoxide](https://github.com/Byron/gitoxide) (`gix`) and [fuser](https://github.com/cberner/fuser). No shelling out to `git`.
+- **Full POSIX** — files, directories, symlinks, hard links, xattrs, permissions.
+- **.git hidden** — the `.git` directory is invisible in the mounted filesystem.
+- **288 tests** across 12 suites: filesystem operations, git integration, fork/merge, edge cases, error recovery, agentic workflows, concurrency, CLI, and more.
 
 ## Development
 
-All 300 tests pass across 12 test suites covering:
-
-- Core filesystem operations (files, dirs, symlinks, permissions, xattrs)
-- Git integration (commits, history, diffs, .gitignore)
-- Fork/merge paradigm (creation, merging, conflicts, strategies)
-- Edge cases (crash recovery, concurrent access, stress tests)
-- Error recovery (corrupted state, permission errors, disk full)
-- Agentic workflows (project creation, iterative editing, parallel forks)
-- Configuration (parsing, defaults, validation)
-- CLI (argument parsing, help text, error handling)
-- Links and symlinks
-- Concurrency (parallel reads/writes, lock contention)
-
 ```bash
-# Run all tests
-cargo test
-
-# Run unit tests only
-cargo test --lib
-
-# Run a specific test suite
-cargo test --test test_fork_merge
-
-# Lint (blocking in CI)
-cargo clippy -- -D warnings
-
-# Format check
-cargo fmt --check
-
-# Run benchmarks
-cargo bench
+cargo test              # run all tests
+cargo test --lib        # unit tests only
+cargo test --test test_fork_merge  # specific suite
+cargo clippy -- -D warnings       # lint
+cargo fmt --check                  # format check
+cargo bench                        # benchmarks
 ```
 
 ## License
 
-MIT
+[MIT](LICENSE)
