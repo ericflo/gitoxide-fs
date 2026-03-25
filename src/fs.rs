@@ -1049,6 +1049,11 @@ impl GitFs {
         Ok(Self { config, backend })
     }
 
+    /// Access the underlying git backend.
+    pub fn backend(&self) -> &GitBackend {
+        &self.backend
+    }
+
     /// Mount the filesystem at the given mount point.
     ///
     /// This spawns a background FUSE session. The mount remains active until

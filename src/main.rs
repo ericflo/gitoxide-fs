@@ -26,7 +26,7 @@ struct Cli {
 enum Commands {
     /// Mount a git repository as a FUSE filesystem.
     ///
-    /// Usage: gofs mount /path/to/repo /mnt/work [OPTIONS]
+    /// Usage: `gofs mount /path/to/repo /mnt/work [OPTIONS]`
     Mount {
         /// Path to the git repository.
         repo: PathBuf,
