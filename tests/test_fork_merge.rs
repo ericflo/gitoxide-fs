@@ -221,8 +221,15 @@ fn merge_fork_file_conflict() {
     let fm = ForkManager::new(backend);
     fm.create_fork("conflicting").expect("create fork");
 
-    // Both parent and fork modify the same file...
-    // (implementation detail — both branches would have different content)
+    // Switch to fork branch, modify the file, and commit.
+    fm.backend().checkout_branch("conflicting").expect("checkout fork");
+    fm.backend().write_file("contested.txt", b"fork version").expect("write fork");
+    fm.backend().commit("fork change").expect("commit fork");
+
+    // Switch back to parent, modify the same file differently, and commit.
+    fm.backend().checkout_branch("main").expect("checkout main");
+    fm.backend().write_file("contested.txt", b"main version").expect("write main");
+    fm.backend().commit("main change").expect("commit main");
 
     let result = fm.merge_fork("conflicting").expect("merge with conflicts");
     assert!(result.had_conflicts);
@@ -241,7 +248,16 @@ fn merge_fork_delete_modify_conflict() {
     let fm = ForkManager::new(backend);
     fm.create_fork("delete-modify").expect("create fork");
 
-    // Parent deletes, fork modifies (or vice versa)
+    // Fork modifies the file.
+    fm.backend().checkout_branch("delete-modify").expect("checkout fork");
+    fm.backend().write_file("contested.txt", b"modified in fork").expect("write fork");
+    fm.backend().commit("fork modify").expect("commit fork");
+
+    // Parent deletes the file.
+    fm.backend().checkout_branch("main").expect("checkout main");
+    fm.backend().delete_file("contested.txt").expect("delete main");
+    fm.backend().commit("main delete").expect("commit main");
+
     let result = fm.merge_fork("delete-modify").expect("merge");
     assert!(result.had_conflicts);
     assert!(result.conflicts.iter().any(|c| c.conflict_type == ConflictType::ModifyDelete));
@@ -258,9 +274,18 @@ fn merge_fork_directory_file_conflict() {
     let fm = ForkManager::new(backend);
     fm.create_fork("dir-file").expect("create fork");
 
-    // One branch creates a file at path X, other creates a directory at path X
+    // Fork adds a file at path "newpath".
+    fm.backend().checkout_branch("dir-file").expect("checkout fork");
+    fm.backend().write_file("newpath", b"fork file content").expect("write fork");
+    fm.backend().commit("fork adds file").expect("commit fork");
+
+    // Parent adds a different file at the same path "newpath".
+    fm.backend().checkout_branch("main").expect("checkout main");
+    fm.backend().write_file("newpath", b"main file content").expect("write main");
+    fm.backend().commit("main adds file").expect("commit main");
+
     let result = fm.merge_fork("dir-file").expect("merge");
-    // This should produce a conflict
+    // Both sides added the same path with different content — conflict.
     assert!(result.had_conflicts);
 }
 
