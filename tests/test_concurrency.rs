@@ -7,7 +7,7 @@
 mod common;
 
 use common::TestFixture;
-use gitoxide_fs::{GitBackend, ForkManager};
+use gitoxide_fs::{ForkManager, GitBackend};
 use std::sync::Arc;
 use std::thread;
 
@@ -219,7 +219,11 @@ fn concurrent_commits_from_different_threads() {
 
     // All commits should be in the log
     let log = backend.log(Some(10)).expect("get log");
-    assert!(log.len() >= 5, "expected at least 5 commits, got {}", log.len());
+    assert!(
+        log.len() >= 5,
+        "expected at least 5 commits, got {}",
+        log.len()
+    );
 }
 
 // =============================================================================

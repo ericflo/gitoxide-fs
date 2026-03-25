@@ -3,9 +3,9 @@
 mod common;
 
 use common::TestFixture;
-use gitoxide_fs::{GitBackend, ForkManager};
 use gitoxide_fs::config::MergeStrategy;
 use gitoxide_fs::fork::ConflictType;
+use gitoxide_fs::{ForkManager, GitBackend};
 
 // =============================================================================
 // FORK CREATION
@@ -31,7 +31,9 @@ fn fork_sees_parent_files() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("parent_file.txt", b"parent content").expect("write");
+    backend
+        .write_file("parent_file.txt", b"parent content")
+        .expect("write");
     backend.commit("parent commit").expect("commit");
 
     let fm = ForkManager::new(backend);
@@ -48,7 +50,9 @@ fn fork_changes_dont_affect_parent() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("shared.txt", b"original").expect("write");
+    backend
+        .write_file("shared.txt", b"original")
+        .expect("write");
     backend.commit("initial").expect("commit");
 
     let fm = ForkManager::new(backend);
@@ -66,14 +70,20 @@ fn create_fork_from_specific_commit() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("v1.txt", b"version 1").expect("write v1");
+    backend
+        .write_file("v1.txt", b"version 1")
+        .expect("write v1");
     let commit1 = backend.commit("v1").expect("commit v1");
 
-    backend.write_file("v2.txt", b"version 2").expect("write v2");
+    backend
+        .write_file("v2.txt", b"version 2")
+        .expect("write v2");
     let _commit2 = backend.commit("v2").expect("commit v2");
 
     let fm = ForkManager::new(backend);
-    let fork = fm.create_fork_at("from-v1", &commit1).expect("fork at commit");
+    let fork = fm
+        .create_fork_at("from-v1", &commit1)
+        .expect("fork at commit");
     assert_eq!(fork.fork_point, commit1);
 }
 
@@ -87,7 +97,9 @@ fn create_nested_fork() {
 
     let fm = ForkManager::new(backend);
     fm.create_fork("parent-fork").expect("create parent fork");
-    let nested = fm.create_nested_fork("parent-fork", "child-fork").expect("create nested fork");
+    let nested = fm
+        .create_nested_fork("parent-fork", "child-fork")
+        .expect("create nested fork");
     assert_eq!(nested.parent_branch, "parent-fork");
 }
 
@@ -215,26 +227,37 @@ fn merge_fork_file_conflict() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("contested.txt", b"original").expect("write");
+    backend
+        .write_file("contested.txt", b"original")
+        .expect("write");
     backend.commit("initial").expect("commit");
 
     let fm = ForkManager::new(backend);
     fm.create_fork("conflicting").expect("create fork");
 
     // Switch to fork branch, modify the file, and commit.
-    fm.backend().checkout_branch("conflicting").expect("checkout fork");
-    fm.backend().write_file("contested.txt", b"fork version").expect("write fork");
+    fm.backend()
+        .checkout_branch("conflicting")
+        .expect("checkout fork");
+    fm.backend()
+        .write_file("contested.txt", b"fork version")
+        .expect("write fork");
     fm.backend().commit("fork change").expect("commit fork");
 
     // Switch back to parent, modify the same file differently, and commit.
     fm.backend().checkout_branch("main").expect("checkout main");
-    fm.backend().write_file("contested.txt", b"main version").expect("write main");
+    fm.backend()
+        .write_file("contested.txt", b"main version")
+        .expect("write main");
     fm.backend().commit("main change").expect("commit main");
 
     let result = fm.merge_fork("conflicting").expect("merge with conflicts");
     assert!(result.had_conflicts);
     assert!(!result.conflicts.is_empty());
-    assert_eq!(result.conflicts[0].conflict_type, ConflictType::BothModified);
+    assert_eq!(
+        result.conflicts[0].conflict_type,
+        ConflictType::BothModified
+    );
 }
 
 #[test]
@@ -242,25 +265,36 @@ fn merge_fork_delete_modify_conflict() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("contested.txt", b"original").expect("write");
+    backend
+        .write_file("contested.txt", b"original")
+        .expect("write");
     backend.commit("initial").expect("commit");
 
     let fm = ForkManager::new(backend);
     fm.create_fork("delete-modify").expect("create fork");
 
     // Fork modifies the file.
-    fm.backend().checkout_branch("delete-modify").expect("checkout fork");
-    fm.backend().write_file("contested.txt", b"modified in fork").expect("write fork");
+    fm.backend()
+        .checkout_branch("delete-modify")
+        .expect("checkout fork");
+    fm.backend()
+        .write_file("contested.txt", b"modified in fork")
+        .expect("write fork");
     fm.backend().commit("fork modify").expect("commit fork");
 
     // Parent deletes the file.
     fm.backend().checkout_branch("main").expect("checkout main");
-    fm.backend().delete_file("contested.txt").expect("delete main");
+    fm.backend()
+        .delete_file("contested.txt")
+        .expect("delete main");
     fm.backend().commit("main delete").expect("commit main");
 
     let result = fm.merge_fork("delete-modify").expect("merge");
     assert!(result.had_conflicts);
-    assert!(result.conflicts.iter().any(|c| c.conflict_type == ConflictType::ModifyDelete));
+    assert!(result
+        .conflicts
+        .iter()
+        .any(|c| c.conflict_type == ConflictType::ModifyDelete));
 }
 
 #[test]
@@ -275,13 +309,19 @@ fn merge_fork_directory_file_conflict() {
     fm.create_fork("dir-file").expect("create fork");
 
     // Fork adds a file at path "newpath".
-    fm.backend().checkout_branch("dir-file").expect("checkout fork");
-    fm.backend().write_file("newpath", b"fork file content").expect("write fork");
+    fm.backend()
+        .checkout_branch("dir-file")
+        .expect("checkout fork");
+    fm.backend()
+        .write_file("newpath", b"fork file content")
+        .expect("write fork");
     fm.backend().commit("fork adds file").expect("commit fork");
 
     // Parent adds a different file at the same path "newpath".
     fm.backend().checkout_branch("main").expect("checkout main");
-    fm.backend().write_file("newpath", b"main file content").expect("write main");
+    fm.backend()
+        .write_file("newpath", b"main file content")
+        .expect("write main");
     fm.backend().commit("main adds file").expect("commit main");
 
     let result = fm.merge_fork("dir-file").expect("merge");
@@ -298,15 +338,21 @@ fn merge_with_ours_strategy() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("contested.txt", b"original").expect("write");
+    backend
+        .write_file("contested.txt", b"original")
+        .expect("write");
     backend.commit("initial").expect("commit");
 
     let fm = ForkManager::new(backend);
     fm.create_fork("ours-test").expect("create fork");
 
-    let result = fm.merge_fork_with_strategy("ours-test", MergeStrategy::Ours)
+    let result = fm
+        .merge_fork_with_strategy("ours-test", MergeStrategy::Ours)
         .expect("merge with ours");
-    assert!(!result.had_conflicts, "ours strategy should auto-resolve conflicts");
+    assert!(
+        !result.had_conflicts,
+        "ours strategy should auto-resolve conflicts"
+    );
 }
 
 #[test]
@@ -314,15 +360,21 @@ fn merge_with_theirs_strategy() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("contested.txt", b"original").expect("write");
+    backend
+        .write_file("contested.txt", b"original")
+        .expect("write");
     backend.commit("initial").expect("commit");
 
     let fm = ForkManager::new(backend);
     fm.create_fork("theirs-test").expect("create fork");
 
-    let result = fm.merge_fork_with_strategy("theirs-test", MergeStrategy::Theirs)
+    let result = fm
+        .merge_fork_with_strategy("theirs-test", MergeStrategy::Theirs)
         .expect("merge with theirs");
-    assert!(!result.had_conflicts, "theirs strategy should auto-resolve conflicts");
+    assert!(
+        !result.had_conflicts,
+        "theirs strategy should auto-resolve conflicts"
+    );
 }
 
 #[test]
@@ -336,7 +388,8 @@ fn merge_with_three_way() {
     let fm = ForkManager::new(backend);
     fm.create_fork("three-way").expect("create fork");
 
-    let result = fm.merge_fork_with_strategy("three-way", MergeStrategy::ThreeWay)
+    let result = fm
+        .merge_fork_with_strategy("three-way", MergeStrategy::ThreeWay)
         .expect("merge three-way");
     assert!(!result.had_conflicts);
 }
@@ -386,7 +439,10 @@ fn merge_already_merged_fork_should_error() {
     fm.create_fork("once-only").expect("create fork");
     fm.merge_fork("once-only").expect("first merge");
     let result = fm.merge_fork("once-only");
-    assert!(result.is_err(), "merging an already-merged fork should error");
+    assert!(
+        result.is_err(),
+        "merging an already-merged fork should error"
+    );
 }
 
 // =============================================================================
@@ -486,8 +542,10 @@ fn nested_fork_chain() {
 
     let fm = ForkManager::new(backend);
     fm.create_fork("level-1").expect("create level 1");
-    fm.create_nested_fork("level-1", "level-2").expect("create level 2");
-    fm.create_nested_fork("level-2", "level-3").expect("create level 3");
+    fm.create_nested_fork("level-1", "level-2")
+        .expect("create level 2");
+    fm.create_nested_fork("level-2", "level-3")
+        .expect("create level 3");
 
     let l3 = fm.get_fork("level-3").expect("get level 3");
     assert_eq!(l3.parent_branch, "level-2");
@@ -503,7 +561,8 @@ fn merge_nested_forks_bottom_up() {
 
     let fm = ForkManager::new(backend);
     fm.create_fork("parent-f").expect("create parent");
-    fm.create_nested_fork("parent-f", "child-f").expect("create child");
+    fm.create_nested_fork("parent-f", "child-f")
+        .expect("create child");
 
     // Merge child into parent first
     fm.merge_fork("child-f").expect("merge child into parent");

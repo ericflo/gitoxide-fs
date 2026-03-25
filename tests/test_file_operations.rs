@@ -17,7 +17,9 @@ fn create_empty_file() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("empty.txt", b"").expect("create empty file");
+    backend
+        .write_file("empty.txt", b"")
+        .expect("create empty file");
     let content = backend.read_file("empty.txt").expect("read empty file");
     assert_eq!(content, b"");
 }
@@ -27,7 +29,9 @@ fn create_file_with_content() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("hello.txt", b"Hello, World!").expect("write file");
+    backend
+        .write_file("hello.txt", b"Hello, World!")
+        .expect("write file");
     let content = backend.read_file("hello.txt").expect("read file");
     assert_eq!(content, b"Hello, World!");
 }
@@ -38,8 +42,12 @@ fn create_file_in_subdirectory() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     backend.create_dir("subdir").expect("create dir");
-    backend.write_file("subdir/file.txt", b"nested").expect("write nested file");
-    let content = backend.read_file("subdir/file.txt").expect("read nested file");
+    backend
+        .write_file("subdir/file.txt", b"nested")
+        .expect("write nested file");
+    let content = backend
+        .read_file("subdir/file.txt")
+        .expect("read nested file");
     assert_eq!(content, b"nested");
 }
 
@@ -48,13 +56,21 @@ fn create_file_in_deeply_nested_directory() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    let deep_path = (0..50).map(|i| format!("d{}", i)).collect::<Vec<_>>().join("/");
+    let deep_path = (0..50)
+        .map(|i| format!("d{}", i))
+        .collect::<Vec<_>>()
+        .join("/");
     for i in 0..50 {
-        let partial = (0..=i).map(|j| format!("d{}", j)).collect::<Vec<_>>().join("/");
+        let partial = (0..=i)
+            .map(|j| format!("d{}", j))
+            .collect::<Vec<_>>()
+            .join("/");
         backend.create_dir(&partial).expect("create deep dir");
     }
     let file_path = format!("{}/deep.txt", deep_path);
-    backend.write_file(&file_path, b"deep content").expect("write deep file");
+    backend
+        .write_file(&file_path, b"deep content")
+        .expect("write deep file");
     let content = backend.read_file(&file_path).expect("read deep file");
     assert_eq!(content, b"deep content");
 }
@@ -64,7 +80,9 @@ fn create_file_one_byte() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("one.bin", &[0x42]).expect("write 1 byte file");
+    backend
+        .write_file("one.bin", &[0x42])
+        .expect("write 1 byte file");
     let content = backend.read_file("one.bin").expect("read 1 byte file");
     assert_eq!(content, vec![0x42]);
 }
@@ -75,7 +93,9 @@ fn create_binary_file() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     let binary_data: Vec<u8> = (0..=255).collect();
-    backend.write_file("binary.bin", &binary_data).expect("write binary file");
+    backend
+        .write_file("binary.bin", &binary_data)
+        .expect("write binary file");
     let content = backend.read_file("binary.bin").expect("read binary file");
     assert_eq!(content, binary_data);
 }
@@ -86,8 +106,12 @@ fn create_file_with_null_bytes() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     let data = b"before\0middle\0after";
-    backend.write_file("nulls.bin", data).expect("write file with nulls");
-    let content = backend.read_file("nulls.bin").expect("read file with nulls");
+    backend
+        .write_file("nulls.bin", data)
+        .expect("write file with nulls");
+    let content = backend
+        .read_file("nulls.bin")
+        .expect("read file with nulls");
     assert_eq!(content, data);
 }
 
@@ -97,7 +121,9 @@ fn create_large_file_1mb() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     let data = vec![0xABu8; 1024 * 1024];
-    backend.write_file("large.bin", &data).expect("write 1MB file");
+    backend
+        .write_file("large.bin", &data)
+        .expect("write 1MB file");
     let content = backend.read_file("large.bin").expect("read 1MB file");
     assert_eq!(content.len(), 1024 * 1024);
     assert_eq!(content, data);
@@ -109,7 +135,9 @@ fn create_large_file_10mb() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     let data = vec![0xCDu8; 10 * 1024 * 1024];
-    backend.write_file("large10.bin", &data).expect("write 10MB file");
+    backend
+        .write_file("large10.bin", &data)
+        .expect("write 10MB file");
     let content = backend.read_file("large10.bin").expect("read 10MB file");
     assert_eq!(content.len(), 10 * 1024 * 1024);
 }
@@ -120,7 +148,9 @@ fn create_large_file_100mb() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     let data = vec![0xEFu8; 100 * 1024 * 1024];
-    backend.write_file("large100.bin", &data).expect("write 100MB file");
+    backend
+        .write_file("large100.bin", &data)
+        .expect("write 100MB file");
     let content = backend.read_file("large100.bin").expect("read 100MB file");
     assert_eq!(content.len(), 100 * 1024 * 1024);
 }
@@ -134,8 +164,12 @@ fn file_with_spaces_in_name() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("hello world.txt", b"spaces").expect("write file with spaces");
-    let content = backend.read_file("hello world.txt").expect("read file with spaces");
+    backend
+        .write_file("hello world.txt", b"spaces")
+        .expect("write file with spaces");
+    let content = backend
+        .read_file("hello world.txt")
+        .expect("read file with spaces");
     assert_eq!(content, b"spaces");
 }
 
@@ -144,8 +178,12 @@ fn file_with_unicode_name() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("日本語ファイル.txt", b"unicode").expect("write unicode file");
-    let content = backend.read_file("日本語ファイル.txt").expect("read unicode file");
+    backend
+        .write_file("日本語ファイル.txt", b"unicode")
+        .expect("write unicode file");
+    let content = backend
+        .read_file("日本語ファイル.txt")
+        .expect("read unicode file");
     assert_eq!(content, b"unicode");
 }
 
@@ -154,7 +192,9 @@ fn file_with_emoji_name() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("🚀🌍.txt", b"emoji").expect("write emoji file");
+    backend
+        .write_file("🚀🌍.txt", b"emoji")
+        .expect("write emoji file");
     let content = backend.read_file("🚀🌍.txt").expect("read emoji file");
     assert_eq!(content, b"emoji");
 }
@@ -164,7 +204,9 @@ fn file_with_leading_dot() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file(".hidden", b"dotfile").expect("write dotfile");
+    backend
+        .write_file(".hidden", b"dotfile")
+        .expect("write dotfile");
     let content = backend.read_file(".hidden").expect("read dotfile");
     assert_eq!(content, b"dotfile");
 }
@@ -174,8 +216,12 @@ fn file_with_multiple_dots() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("file.tar.gz.bak", b"dots").expect("write multi-dot file");
-    let content = backend.read_file("file.tar.gz.bak").expect("read multi-dot file");
+    backend
+        .write_file("file.tar.gz.bak", b"dots")
+        .expect("write multi-dot file");
+    let content = backend
+        .read_file("file.tar.gz.bak")
+        .expect("read multi-dot file");
     assert_eq!(content, b"dots");
 }
 
@@ -203,7 +249,9 @@ fn file_with_special_chars() {
         "file ~tilde.txt",
     ];
     for name in &names {
-        backend.write_file(name, name.as_bytes()).expect(&format!("write {}", name));
+        backend
+            .write_file(name, name.as_bytes())
+            .expect(&format!("write {}", name));
         let content = backend.read_file(name).expect(&format!("read {}", name));
         assert_eq!(content, name.as_bytes(), "mismatch for {}", name);
     }
@@ -216,8 +264,12 @@ fn file_with_max_filename_length() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     // Most filesystems support 255 byte filenames
     let long_name = "a".repeat(255);
-    backend.write_file(&long_name, b"long name").expect("write max-length filename");
-    let content = backend.read_file(&long_name).expect("read max-length filename");
+    backend
+        .write_file(&long_name, b"long name")
+        .expect("write max-length filename");
+    let content = backend
+        .read_file(&long_name)
+        .expect("read max-length filename");
     assert_eq!(content, b"long name");
 }
 
@@ -266,9 +318,15 @@ fn read_file_after_overwrite() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("overwrite.txt", b"version 1").expect("write v1");
-    backend.write_file("overwrite.txt", b"version 2").expect("write v2");
-    let content = backend.read_file("overwrite.txt").expect("read after overwrite");
+    backend
+        .write_file("overwrite.txt", b"version 1")
+        .expect("write v1");
+    backend
+        .write_file("overwrite.txt", b"version 2")
+        .expect("write v2");
+    let content = backend
+        .read_file("overwrite.txt")
+        .expect("read after overwrite");
     assert_eq!(content, b"version 2");
 }
 
@@ -278,7 +336,9 @@ fn read_file_preserves_exact_bytes() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     let data: Vec<u8> = (0..=255).cycle().take(10000).collect();
-    backend.write_file("exact.bin", &data).expect("write exact bytes");
+    backend
+        .write_file("exact.bin", &data)
+        .expect("write exact bytes");
     let content = backend.read_file("exact.bin").expect("read exact bytes");
     assert_eq!(content, data, "byte-perfect round-trip failed");
 }
@@ -292,8 +352,12 @@ fn overwrite_file_with_shorter_content() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("shrink.txt", b"long content here").expect("write long");
-    backend.write_file("shrink.txt", b"short").expect("write short");
+    backend
+        .write_file("shrink.txt", b"long content here")
+        .expect("write long");
+    backend
+        .write_file("shrink.txt", b"short")
+        .expect("write short");
     let content = backend.read_file("shrink.txt").expect("read after shrink");
     assert_eq!(content, b"short");
 }
@@ -303,8 +367,12 @@ fn overwrite_file_with_longer_content() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("grow.txt", b"short").expect("write short");
-    backend.write_file("grow.txt", b"much longer content now").expect("write long");
+    backend
+        .write_file("grow.txt", b"short")
+        .expect("write short");
+    backend
+        .write_file("grow.txt", b"much longer content now")
+        .expect("write long");
     let content = backend.read_file("grow.txt").expect("read after grow");
     assert_eq!(content, b"much longer content now");
 }
@@ -314,9 +382,15 @@ fn overwrite_file_with_empty_content() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("truncate.txt", b"has content").expect("write content");
-    backend.write_file("truncate.txt", b"").expect("write empty");
-    let content = backend.read_file("truncate.txt").expect("read after truncate");
+    backend
+        .write_file("truncate.txt", b"has content")
+        .expect("write content");
+    backend
+        .write_file("truncate.txt", b"")
+        .expect("write empty");
+    let content = backend
+        .read_file("truncate.txt")
+        .expect("read after truncate");
     assert_eq!(content, b"");
 }
 
@@ -327,9 +401,13 @@ fn rapid_successive_writes() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     for i in 0..100 {
         let content = format!("version {}", i);
-        backend.write_file("rapid.txt", content.as_bytes()).expect("rapid write");
+        backend
+            .write_file("rapid.txt", content.as_bytes())
+            .expect("rapid write");
     }
-    let content = backend.read_file("rapid.txt").expect("read after rapid writes");
+    let content = backend
+        .read_file("rapid.txt")
+        .expect("read after rapid writes");
     assert_eq!(content, b"version 99");
 }
 
@@ -342,7 +420,9 @@ fn delete_existing_file() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("to_delete.txt", b"delete me").expect("write file");
+    backend
+        .write_file("to_delete.txt", b"delete me")
+        .expect("write file");
     backend.delete_file("to_delete.txt").expect("delete file");
     let result = backend.read_file("to_delete.txt");
     assert!(result.is_err(), "deleted file should not be readable");
@@ -362,9 +442,13 @@ fn create_delete_create_same_file() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("phoenix.txt", b"version 1").expect("write v1");
+    backend
+        .write_file("phoenix.txt", b"version 1")
+        .expect("write v1");
     backend.delete_file("phoenix.txt").expect("delete");
-    backend.write_file("phoenix.txt", b"version 2").expect("write v2");
+    backend
+        .write_file("phoenix.txt", b"version 2")
+        .expect("write v2");
     let content = backend.read_file("phoenix.txt").expect("read v2");
     assert_eq!(content, b"version 2");
 }
@@ -412,7 +496,9 @@ fn remove_nonempty_directory_should_fail() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     backend.create_dir("nonempty").expect("create dir");
-    backend.write_file("nonempty/file.txt", b"content").expect("write file in dir");
+    backend
+        .write_file("nonempty/file.txt", b"content")
+        .expect("write file in dir");
     let result = backend.remove_dir("nonempty");
     assert!(result.is_err(), "removing non-empty directory should error");
 }
@@ -423,7 +509,10 @@ fn remove_nonexistent_directory() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     let result = backend.remove_dir("ghost_dir");
-    assert!(result.is_err(), "removing nonexistent directory should error");
+    assert!(
+        result.is_err(),
+        "removing nonexistent directory should error"
+    );
 }
 
 #[test]
@@ -461,7 +550,9 @@ fn list_directory_with_subdirectories() {
     backend.create_dir("parent").expect("create parent");
     backend.create_dir("parent/child1").expect("create child1");
     backend.create_dir("parent/child2").expect("create child2");
-    backend.write_file("parent/file.txt", b"f").expect("write file");
+    backend
+        .write_file("parent/file.txt", b"f")
+        .expect("write file");
     let entries = backend.list_dir("parent").expect("list parent");
     assert_eq!(entries.len(), 3);
 }
@@ -473,7 +564,8 @@ fn list_directory_many_entries() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     backend.create_dir("bigdir").expect("create dir");
     for i in 0..10000 {
-        backend.write_file(&format!("bigdir/file_{:05}.txt", i), b"x")
+        backend
+            .write_file(&format!("bigdir/file_{:05}.txt", i), b"x")
             .expect("write file in big dir");
     }
     let entries = backend.list_dir("bigdir").expect("list big dir");
@@ -485,7 +577,9 @@ fn list_root_directory() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("root_file.txt", b"root").expect("write root file");
+    backend
+        .write_file("root_file.txt", b"root")
+        .expect("write root file");
     let entries = backend.list_dir("").expect("list root");
     assert!(!entries.is_empty(), "root should have at least one entry");
 }
@@ -499,8 +593,12 @@ fn rename_file() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("old_name.txt", b"content").expect("write file");
-    backend.rename("old_name.txt", "new_name.txt").expect("rename file");
+    backend
+        .write_file("old_name.txt", b"content")
+        .expect("write file");
+    backend
+        .rename("old_name.txt", "new_name.txt")
+        .expect("rename file");
     let result = backend.read_file("old_name.txt");
     assert!(result.is_err(), "old name should not exist");
     let content = backend.read_file("new_name.txt").expect("read new name");
@@ -514,8 +612,12 @@ fn rename_file_to_different_directory() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     backend.create_dir("dir1").expect("create dir1");
     backend.create_dir("dir2").expect("create dir2");
-    backend.write_file("dir1/file.txt", b"move me").expect("write file");
-    backend.rename("dir1/file.txt", "dir2/file.txt").expect("rename across dirs");
+    backend
+        .write_file("dir1/file.txt", b"move me")
+        .expect("write file");
+    backend
+        .rename("dir1/file.txt", "dir2/file.txt")
+        .expect("rename across dirs");
     let result = backend.read_file("dir1/file.txt");
     assert!(result.is_err());
     let content = backend.read_file("dir2/file.txt").expect("read in new dir");
@@ -527,9 +629,15 @@ fn rename_file_overwrite_existing() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("source.txt", b"new content").expect("write source");
-    backend.write_file("target.txt", b"old content").expect("write target");
-    backend.rename("source.txt", "target.txt").expect("rename overwrite");
+    backend
+        .write_file("source.txt", b"new content")
+        .expect("write source");
+    backend
+        .write_file("target.txt", b"old content")
+        .expect("write target");
+    backend
+        .rename("source.txt", "target.txt")
+        .expect("rename overwrite");
     let content = backend.read_file("target.txt").expect("read target");
     assert_eq!(content, b"new content");
     let result = backend.read_file("source.txt");
@@ -542,11 +650,15 @@ fn rename_directory() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     backend.create_dir("old_dir").expect("create dir");
-    backend.write_file("old_dir/file.txt", b"in dir").expect("write in dir");
+    backend
+        .write_file("old_dir/file.txt", b"in dir")
+        .expect("write in dir");
     backend.rename("old_dir", "new_dir").expect("rename dir");
     let result = backend.stat("old_dir");
     assert!(result.is_err());
-    let content = backend.read_file("new_dir/file.txt").expect("read in renamed dir");
+    let content = backend
+        .read_file("new_dir/file.txt")
+        .expect("read in renamed dir");
     assert_eq!(content, b"in dir");
 }
 
@@ -568,7 +680,9 @@ fn stat_regular_file() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("stat_me.txt", b"12345").expect("write file");
+    backend
+        .write_file("stat_me.txt", b"12345")
+        .expect("write file");
     let stat = backend.stat("stat_me.txt").expect("stat file");
     assert_eq!(stat.file_type, gitoxide_fs::git::FileType::RegularFile);
     assert_eq!(stat.size, 5);
@@ -589,8 +703,12 @@ fn stat_symlink() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("target.txt", b"target").expect("write target");
-    backend.create_symlink("link.txt", "target.txt").expect("create symlink");
+    backend
+        .write_file("target.txt", b"target")
+        .expect("write target");
+    backend
+        .create_symlink("link.txt", "target.txt")
+        .expect("create symlink");
     let stat = backend.stat("link.txt").expect("stat symlink");
     assert_eq!(stat.file_type, gitoxide_fs::git::FileType::Symlink);
 }
@@ -609,10 +727,14 @@ fn stat_file_size_updates_after_write() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("growing.txt", b"small").expect("write small");
+    backend
+        .write_file("growing.txt", b"small")
+        .expect("write small");
     let stat1 = backend.stat("growing.txt").expect("stat small");
     assert_eq!(stat1.size, 5);
-    backend.write_file("growing.txt", b"much larger content").expect("write larger");
+    backend
+        .write_file("growing.txt", b"much larger content")
+        .expect("write larger");
     let stat2 = backend.stat("growing.txt").expect("stat larger");
     assert_eq!(stat2.size, 19);
 }
@@ -626,7 +748,9 @@ fn set_file_permissions() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("perms.txt", b"content").expect("write file");
+    backend
+        .write_file("perms.txt", b"content")
+        .expect("write file");
     backend.set_permissions("perms.txt", 0o755).expect("chmod");
     let stat = backend.stat("perms.txt").expect("stat");
     assert_eq!(stat.mode & 0o777, 0o755);
@@ -637,8 +761,12 @@ fn set_file_readonly() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("readonly.txt", b"content").expect("write file");
-    backend.set_permissions("readonly.txt", 0o444).expect("chmod readonly");
+    backend
+        .write_file("readonly.txt", b"content")
+        .expect("write file");
+    backend
+        .set_permissions("readonly.txt", 0o444)
+        .expect("chmod readonly");
     let stat = backend.stat("readonly.txt").expect("stat");
     assert_eq!(stat.mode & 0o777, 0o444);
 }
@@ -648,8 +776,12 @@ fn set_file_executable() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("script.sh", b"#!/bin/bash\necho hi").expect("write script");
-    backend.set_permissions("script.sh", 0o755).expect("chmod executable");
+    backend
+        .write_file("script.sh", b"#!/bin/bash\necho hi")
+        .expect("write script");
+    backend
+        .set_permissions("script.sh", 0o755)
+        .expect("chmod executable");
     let stat = backend.stat("script.sh").expect("stat");
     assert!(stat.mode & 0o111 != 0, "file should be executable");
 }
@@ -663,8 +795,12 @@ fn create_symlink() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("real.txt", b"real content").expect("write target");
-    backend.create_symlink("sym.txt", "real.txt").expect("create symlink");
+    backend
+        .write_file("real.txt", b"real content")
+        .expect("write target");
+    backend
+        .create_symlink("sym.txt", "real.txt")
+        .expect("create symlink");
     let target = backend.read_symlink("sym.txt").expect("read symlink");
     assert_eq!(target, "real.txt");
 }
@@ -674,10 +810,16 @@ fn read_through_symlink() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("original.txt", b"follow me").expect("write target");
-    backend.create_symlink("link.txt", "original.txt").expect("create symlink");
+    backend
+        .write_file("original.txt", b"follow me")
+        .expect("write target");
+    backend
+        .create_symlink("link.txt", "original.txt")
+        .expect("create symlink");
     // Reading through symlink should return target's content
-    let content = backend.read_file("original.txt").expect("read through link");
+    let content = backend
+        .read_file("original.txt")
+        .expect("read through link");
     assert_eq!(content, b"follow me");
 }
 
@@ -686,8 +828,12 @@ fn dangling_symlink() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.create_symlink("dangling.txt", "nonexistent_target.txt").expect("create dangling link");
-    let target = backend.read_symlink("dangling.txt").expect("read dangling link");
+    backend
+        .create_symlink("dangling.txt", "nonexistent_target.txt")
+        .expect("create dangling link");
+    let target = backend
+        .read_symlink("dangling.txt")
+        .expect("read dangling link");
     assert_eq!(target, "nonexistent_target.txt");
 }
 
@@ -697,8 +843,12 @@ fn symlink_to_directory() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     backend.create_dir("real_dir").expect("create dir");
-    backend.write_file("real_dir/file.txt", b"in dir").expect("write in dir");
-    backend.create_symlink("link_dir", "real_dir").expect("create dir symlink");
+    backend
+        .write_file("real_dir/file.txt", b"in dir")
+        .expect("write in dir");
+    backend
+        .create_symlink("link_dir", "real_dir")
+        .expect("create dir symlink");
     let target = backend.read_symlink("link_dir").expect("read dir symlink");
     assert_eq!(target, "real_dir");
 }
@@ -709,9 +859,15 @@ fn symlink_chain() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
     backend.write_file("base.txt", b"base").expect("write base");
-    backend.create_symlink("link1.txt", "base.txt").expect("link1");
-    backend.create_symlink("link2.txt", "link1.txt").expect("link2");
-    backend.create_symlink("link3.txt", "link2.txt").expect("link3");
+    backend
+        .create_symlink("link1.txt", "base.txt")
+        .expect("link1");
+    backend
+        .create_symlink("link2.txt", "link1.txt")
+        .expect("link2");
+    backend
+        .create_symlink("link3.txt", "link2.txt")
+        .expect("link3");
     // Should be able to read the chain
     let target = backend.read_symlink("link3.txt").expect("read link3");
     assert_eq!(target, "link2.txt");
@@ -726,8 +882,12 @@ fn create_hardlink() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("original.txt", b"shared content").expect("write original");
-    backend.create_hardlink("hardlink.txt", "original.txt").expect("create hardlink");
+    backend
+        .write_file("original.txt", b"shared content")
+        .expect("write original");
+    backend
+        .create_hardlink("hardlink.txt", "original.txt")
+        .expect("create hardlink");
     let content = backend.read_file("hardlink.txt").expect("read hardlink");
     assert_eq!(content, b"shared content");
 }
@@ -737,10 +897,18 @@ fn hardlink_survives_original_delete() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("original.txt", b"persist").expect("write original");
-    backend.create_hardlink("hardlink.txt", "original.txt").expect("create hardlink");
-    backend.delete_file("original.txt").expect("delete original");
-    let content = backend.read_file("hardlink.txt").expect("read hardlink after delete");
+    backend
+        .write_file("original.txt", b"persist")
+        .expect("write original");
+    backend
+        .create_hardlink("hardlink.txt", "original.txt")
+        .expect("create hardlink");
+    backend
+        .delete_file("original.txt")
+        .expect("delete original");
+    let content = backend
+        .read_file("hardlink.txt")
+        .expect("read hardlink after delete");
     assert_eq!(content, b"persist");
 }
 
@@ -753,9 +921,15 @@ fn set_and_get_xattr() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("xattr.txt", b"content").expect("write file");
-    backend.set_xattr("xattr.txt", "user.test", b"value").expect("set xattr");
-    let val = backend.get_xattr("xattr.txt", "user.test").expect("get xattr");
+    backend
+        .write_file("xattr.txt", b"content")
+        .expect("write file");
+    backend
+        .set_xattr("xattr.txt", "user.test", b"value")
+        .expect("set xattr");
+    let val = backend
+        .get_xattr("xattr.txt", "user.test")
+        .expect("get xattr");
     assert_eq!(val, Some(b"value".to_vec()));
 }
 
@@ -764,9 +938,15 @@ fn list_xattrs() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("xattr2.txt", b"content").expect("write file");
-    backend.set_xattr("xattr2.txt", "user.a", b"1").expect("set a");
-    backend.set_xattr("xattr2.txt", "user.b", b"2").expect("set b");
+    backend
+        .write_file("xattr2.txt", b"content")
+        .expect("write file");
+    backend
+        .set_xattr("xattr2.txt", "user.a", b"1")
+        .expect("set a");
+    backend
+        .set_xattr("xattr2.txt", "user.b", b"2")
+        .expect("set b");
     let attrs = backend.list_xattr("xattr2.txt").expect("list xattrs");
     assert_eq!(attrs.len(), 2);
     assert!(attrs.contains(&"user.a".to_string()));
@@ -778,10 +958,18 @@ fn remove_xattr() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("xattr3.txt", b"content").expect("write file");
-    backend.set_xattr("xattr3.txt", "user.remove_me", b"val").expect("set xattr");
-    backend.remove_xattr("xattr3.txt", "user.remove_me").expect("remove xattr");
-    let val = backend.get_xattr("xattr3.txt", "user.remove_me").expect("get removed xattr");
+    backend
+        .write_file("xattr3.txt", b"content")
+        .expect("write file");
+    backend
+        .set_xattr("xattr3.txt", "user.remove_me", b"val")
+        .expect("set xattr");
+    backend
+        .remove_xattr("xattr3.txt", "user.remove_me")
+        .expect("remove xattr");
+    let val = backend
+        .get_xattr("xattr3.txt", "user.remove_me")
+        .expect("get removed xattr");
     assert_eq!(val, None);
 }
 
@@ -790,8 +978,12 @@ fn get_nonexistent_xattr() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("xattr4.txt", b"content").expect("write file");
-    let val = backend.get_xattr("xattr4.txt", "user.nope").expect("get nonexistent xattr");
+    backend
+        .write_file("xattr4.txt", b"content")
+        .expect("write file");
+    let val = backend
+        .get_xattr("xattr4.txt", "user.nope")
+        .expect("get nonexistent xattr");
     assert_eq!(val, None);
 }
 
@@ -817,7 +1009,9 @@ fn concurrent_writes_to_different_files() {
         handles.push(thread::spawn(move || {
             let path = format!("concurrent_{}.txt", i);
             let content = format!("content {}", i);
-            backend.write_file(&path, content.as_bytes()).expect("concurrent write");
+            backend
+                .write_file(&path, content.as_bytes())
+                .expect("concurrent write");
         }));
     }
     for h in handles {
@@ -841,13 +1035,17 @@ fn concurrent_reads_same_file() {
     fix.init_repo();
     let config = fix.config();
     let backend = Arc::new(GitBackend::open(&config).expect("open backend"));
-    backend.write_file("shared_read.txt", b"shared data").expect("write shared");
+    backend
+        .write_file("shared_read.txt", b"shared data")
+        .expect("write shared");
 
     let mut handles = vec![];
     for _ in 0..20 {
         let backend = Arc::clone(&backend);
         handles.push(thread::spawn(move || {
-            let content = backend.read_file("shared_read.txt").expect("concurrent read");
+            let content = backend
+                .read_file("shared_read.txt")
+                .expect("concurrent read");
             assert_eq!(content, b"shared data");
         }));
     }
@@ -871,7 +1069,9 @@ fn concurrent_write_same_file() {
         let backend = Arc::clone(&backend);
         handles.push(thread::spawn(move || {
             let content = format!("writer {}", i);
-            backend.write_file("contested.txt", content.as_bytes()).expect("contested write");
+            backend
+                .write_file("contested.txt", content.as_bytes())
+                .expect("contested write");
         }));
     }
     for h in handles {
@@ -893,10 +1093,16 @@ fn rename_file_in_same_directory() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("old_name.txt", b"rename me").expect("write file");
-    backend.rename("old_name.txt", "new_name.txt").expect("rename file");
+    backend
+        .write_file("old_name.txt", b"rename me")
+        .expect("write file");
+    backend
+        .rename("old_name.txt", "new_name.txt")
+        .expect("rename file");
 
-    let content = backend.read_file("new_name.txt").expect("read renamed file");
+    let content = backend
+        .read_file("new_name.txt")
+        .expect("read renamed file");
     assert_eq!(content, b"rename me");
 
     let result = backend.read_file("old_name.txt");
@@ -911,8 +1117,12 @@ fn rename_file_across_directories() {
 
     backend.create_dir("src").expect("create src dir");
     backend.create_dir("dst").expect("create dst dir");
-    backend.write_file("src/file.txt", b"moving").expect("write file");
-    backend.rename("src/file.txt", "dst/file.txt").expect("move file");
+    backend
+        .write_file("src/file.txt", b"moving")
+        .expect("write file");
+    backend
+        .rename("src/file.txt", "dst/file.txt")
+        .expect("move file");
 
     let content = backend.read_file("dst/file.txt").expect("read moved file");
     assert_eq!(content, b"moving");
@@ -928,10 +1138,16 @@ fn rename_directory_with_contents() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     backend.create_dir("old_dir").expect("create dir");
-    backend.write_file("old_dir/file.txt", b"in dir").expect("write in dir");
-    backend.rename("old_dir", "new_dir").expect("rename directory");
+    backend
+        .write_file("old_dir/file.txt", b"in dir")
+        .expect("write in dir");
+    backend
+        .rename("old_dir", "new_dir")
+        .expect("rename directory");
 
-    let content = backend.read_file("new_dir/file.txt").expect("read from renamed dir");
+    let content = backend
+        .read_file("new_dir/file.txt")
+        .expect("read from renamed dir");
     assert_eq!(content, b"in dir");
 
     let result = backend.stat("old_dir");
@@ -944,10 +1160,16 @@ fn rename_to_same_name_noop() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("same.txt", b"unchanged").expect("write file");
-    backend.rename("same.txt", "same.txt").expect("rename to self");
+    backend
+        .write_file("same.txt", b"unchanged")
+        .expect("write file");
+    backend
+        .rename("same.txt", "same.txt")
+        .expect("rename to self");
 
-    let content = backend.read_file("same.txt").expect("read after noop rename");
+    let content = backend
+        .read_file("same.txt")
+        .expect("read after noop rename");
     assert_eq!(content, b"unchanged");
 }
 
@@ -967,15 +1189,24 @@ fn rename_overwrites_existing_file() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("source.txt", b"new content").expect("write source");
-    backend.write_file("target.txt", b"old content").expect("write target");
-    backend.rename("source.txt", "target.txt").expect("rename over existing");
+    backend
+        .write_file("source.txt", b"new content")
+        .expect("write source");
+    backend
+        .write_file("target.txt", b"old content")
+        .expect("write target");
+    backend
+        .rename("source.txt", "target.txt")
+        .expect("rename over existing");
 
     let content = backend.read_file("target.txt").expect("read overwritten");
     assert_eq!(content, b"new content");
 
     let result = backend.read_file("source.txt");
-    assert!(result.is_err(), "source should not exist after overwrite rename");
+    assert!(
+        result.is_err(),
+        "source should not exist after overwrite rename"
+    );
 }
 
 #[test]
@@ -985,12 +1216,19 @@ fn rename_directory_over_non_empty_directory_errors() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     backend.create_dir("dir_a").expect("create dir_a");
-    backend.write_file("dir_a/file.txt", b"a").expect("write in a");
+    backend
+        .write_file("dir_a/file.txt", b"a")
+        .expect("write in a");
     backend.create_dir("dir_b").expect("create dir_b");
-    backend.write_file("dir_b/file.txt", b"b").expect("write in b");
+    backend
+        .write_file("dir_b/file.txt", b"b")
+        .expect("write in b");
 
     let result = backend.rename("dir_a", "dir_b");
-    assert!(result.is_err(), "renaming dir over non-empty dir should error");
+    assert!(
+        result.is_err(),
+        "renaming dir over non-empty dir should error"
+    );
 }
 
 #[test]
@@ -1000,8 +1238,12 @@ fn rename_preserves_content_exactly() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     let data: Vec<u8> = (0..=255).cycle().take(10000).collect();
-    backend.write_file("binary.bin", &data).expect("write binary");
-    backend.rename("binary.bin", "moved.bin").expect("rename binary");
+    backend
+        .write_file("binary.bin", &data)
+        .expect("write binary");
+    backend
+        .rename("binary.bin", "moved.bin")
+        .expect("rename binary");
 
     let content = backend.read_file("moved.bin").expect("read renamed binary");
     assert_eq!(content, data);
@@ -1013,7 +1255,9 @@ fn rename_creates_commit_with_both_paths() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("before.txt", b"data").expect("write file");
+    backend
+        .write_file("before.txt", b"data")
+        .expect("write file");
     backend.commit("add file").expect("first commit");
     backend.rename("before.txt", "after.txt").expect("rename");
     backend.commit("rename file").expect("rename commit");
@@ -1038,8 +1282,12 @@ fn truncate_file_to_zero() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("data.txt", b"some content here").expect("write file");
-    backend.truncate_file("data.txt", 0).expect("truncate to zero");
+    backend
+        .write_file("data.txt", b"some content here")
+        .expect("write file");
+    backend
+        .truncate_file("data.txt", 0)
+        .expect("truncate to zero");
 
     let content = backend.read_file("data.txt").expect("read truncated file");
     assert_eq!(content, b"");
@@ -1051,8 +1299,12 @@ fn truncate_file_to_smaller_size() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("data.txt", b"Hello, World!").expect("write file");
-    backend.truncate_file("data.txt", 5).expect("truncate to 5 bytes");
+    backend
+        .write_file("data.txt", b"Hello, World!")
+        .expect("write file");
+    backend
+        .truncate_file("data.txt", 5)
+        .expect("truncate to 5 bytes");
 
     let content = backend.read_file("data.txt").expect("read truncated file");
     assert_eq!(content, b"Hello");
@@ -1065,12 +1317,17 @@ fn truncate_file_to_larger_size_extends_with_zeros() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     backend.write_file("data.txt", b"Hi").expect("write file");
-    backend.truncate_file("data.txt", 10).expect("truncate to larger");
+    backend
+        .truncate_file("data.txt", 10)
+        .expect("truncate to larger");
 
     let content = backend.read_file("data.txt").expect("read extended file");
     assert_eq!(content.len(), 10);
     assert_eq!(&content[..2], b"Hi");
-    assert!(content[2..].iter().all(|&b| b == 0), "extension should be zero-filled");
+    assert!(
+        content[2..].iter().all(|&b| b == 0),
+        "extension should be zero-filled"
+    );
 }
 
 #[test]
@@ -1089,11 +1346,20 @@ fn fallocate_preallocates_space() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("prealloc.txt", b"").expect("create empty file");
-    backend.fallocate("prealloc.txt", 1024 * 1024).expect("fallocate 1MB");
+    backend
+        .write_file("prealloc.txt", b"")
+        .expect("create empty file");
+    backend
+        .fallocate("prealloc.txt", 1024 * 1024)
+        .expect("fallocate 1MB");
 
-    let stat = backend.stat("prealloc.txt").expect("stat preallocated file");
-    assert!(stat.size >= 1024 * 1024, "file should be at least 1MB after fallocate");
+    let stat = backend
+        .stat("prealloc.txt")
+        .expect("stat preallocated file");
+    assert!(
+        stat.size >= 1024 * 1024,
+        "file should be at least 1MB after fallocate"
+    );
 }
 
 // =============================================================================
@@ -1106,10 +1372,14 @@ fn chmod_changes_mode() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("script.sh", b"#!/bin/bash\necho hello").expect("write script");
+    backend
+        .write_file("script.sh", b"#!/bin/bash\necho hello")
+        .expect("write script");
     backend.set_permissions("script.sh", 0o755).expect("chmod");
 
-    let mode = backend.get_permissions("script.sh").expect("get permissions");
+    let mode = backend
+        .get_permissions("script.sh")
+        .expect("get permissions");
     assert_eq!(mode & 0o777, 0o755, "permissions should be 755");
 }
 
@@ -1119,8 +1389,12 @@ fn permission_preserved_across_reads() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("exec.sh", b"#!/bin/sh").expect("write file");
-    backend.set_permissions("exec.sh", 0o755).expect("set exec bit");
+    backend
+        .write_file("exec.sh", b"#!/bin/sh")
+        .expect("write file");
+    backend
+        .set_permissions("exec.sh", 0o755)
+        .expect("set exec bit");
 
     // Read the file, then check permissions again
     let _content = backend.read_file("exec.sh").expect("read file");
@@ -1134,7 +1408,9 @@ fn permission_preserved_in_git_commit() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("script.sh", b"#!/bin/bash").expect("write file");
+    backend
+        .write_file("script.sh", b"#!/bin/bash")
+        .expect("write file");
     backend.set_permissions("script.sh", 0o755).expect("chmod");
     backend.commit("add executable script").expect("commit");
 
@@ -1149,7 +1425,9 @@ fn default_file_permissions() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("default.txt", b"data").expect("write file");
+    backend
+        .write_file("default.txt", b"data")
+        .expect("write file");
     let stat = backend.stat("default.txt").expect("stat new file");
 
     // Git tracks 0644 for regular files by default
@@ -1175,13 +1453,21 @@ fn executable_bit_roundtrip() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("tool", b"#!/bin/sh\ntrue").expect("write tool");
-    backend.set_permissions("tool", 0o755).expect("make executable");
+    backend
+        .write_file("tool", b"#!/bin/sh\ntrue")
+        .expect("write tool");
+    backend
+        .set_permissions("tool", 0o755)
+        .expect("make executable");
     backend.commit("add tool").expect("commit");
 
     // Git supports 100644 (not executable) and 100755 (executable)
     let stat = backend.stat("tool").expect("stat after roundtrip");
-    assert_eq!(stat.mode & 0o111, 0o111, "executable bit should roundtrip through git");
+    assert_eq!(
+        stat.mode & 0o111,
+        0o111,
+        "executable bit should roundtrip through git"
+    );
 }
 
 #[test]

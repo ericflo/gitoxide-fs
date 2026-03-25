@@ -106,10 +106,9 @@ pub struct PerformanceConfig {
 impl Config {
     /// Load configuration from a TOML file.
     pub fn from_file(path: &std::path::Path) -> crate::Result<Self> {
-        let contents = std::fs::read_to_string(path)
-            .map_err(|e| crate::Error::Io(e))?;
-        let config: Self = toml::from_str(&contents)
-            .map_err(|e| crate::Error::Config(e.to_string()))?;
+        let contents = std::fs::read_to_string(path).map_err(|e| crate::Error::Io(e))?;
+        let config: Self =
+            toml::from_str(&contents).map_err(|e| crate::Error::Config(e.to_string()))?;
         Ok(config)
     }
 
@@ -164,13 +163,33 @@ impl Default for PerformanceConfig {
     }
 }
 
-fn default_true() -> bool { true }
-fn default_debounce_ms() -> u64 { 500 }
-fn default_max_batch() -> usize { 100 }
-fn default_author() -> String { "gitoxide-fs".to_string() }
-fn default_email() -> String { "gitoxide-fs@localhost".to_string() }
-fn default_merge_strategy() -> MergeStrategy { MergeStrategy::ThreeWay }
-fn default_cache_size() -> usize { 256 * 1024 * 1024 } // 256 MB
-fn default_workers() -> usize { 4 }
-fn default_large_file_threshold() -> usize { 10 * 1024 * 1024 } // 10 MB
-fn default_log_level() -> String { "info".to_string() }
+fn default_true() -> bool {
+    true
+}
+fn default_debounce_ms() -> u64 {
+    500
+}
+fn default_max_batch() -> usize {
+    100
+}
+fn default_author() -> String {
+    "gitoxide-fs".to_string()
+}
+fn default_email() -> String {
+    "gitoxide-fs@localhost".to_string()
+}
+fn default_merge_strategy() -> MergeStrategy {
+    MergeStrategy::ThreeWay
+}
+fn default_cache_size() -> usize {
+    256 * 1024 * 1024
+} // 256 MB
+fn default_workers() -> usize {
+    4
+}
+fn default_large_file_threshold() -> usize {
+    10 * 1024 * 1024
+} // 10 MB
+fn default_log_level() -> String {
+    "info".to_string()
+}

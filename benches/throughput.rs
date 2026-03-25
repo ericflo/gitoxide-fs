@@ -1,6 +1,6 @@
 //! Performance benchmarks for gitoxide-fs.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::path::PathBuf;
 use tempfile::TempDir;
 

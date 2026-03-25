@@ -105,9 +105,7 @@ pub struct RepoInfo {
 
 /// Returns true if the path refers to the .git directory or its contents.
 fn is_git_internal(path: &str) -> bool {
-    path == ".git"
-        || path.starts_with(".git/")
-        || path.starts_with(".git\\")
+    path == ".git" || path.starts_with(".git/") || path.starts_with(".git\\")
 }
 
 // ---------------------------------------------------------------------------
@@ -203,9 +201,7 @@ impl GitBackend {
                 return Err(Error::PermissionDenied("path traversal not allowed".into()));
             }
             if component.as_bytes().len() > 255 {
-                return Err(Error::NameTooLong(format!(
-                    "component exceeds 255 bytes"
-                )));
+                return Err(Error::NameTooLong(format!("component exceeds 255 bytes")));
             }
         }
 
@@ -438,7 +434,9 @@ impl GitBackend {
         self.check_writable()?;
         // Reject removing root
         if path.is_empty() {
-            return Err(Error::InvalidArgument("cannot remove root directory".into()));
+            return Err(Error::InvalidArgument(
+                "cannot remove root directory".into(),
+            ));
         }
         self.validate_file_path(path)?;
         let full = self.abs_path(path);
@@ -449,12 +447,10 @@ impl GitBackend {
             return Err(Error::NotADirectory(path.to_string()));
         }
         // Check if directory contains user-visible files (ignore .gitkeep)
-        let has_user_files = fs::read_dir(&full)?
-            .filter_map(|e| e.ok())
-            .any(|e| {
-                let name = e.file_name().to_string_lossy().to_string();
-                name != ".gitkeep"
-            });
+        let has_user_files = fs::read_dir(&full)?.filter_map(|e| e.ok()).any(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name != ".gitkeep"
+        });
         if has_user_files {
             return Err(Error::DirectoryNotEmpty(path.to_string()));
         }
@@ -477,12 +473,10 @@ impl GitBackend {
         }
         // If renaming a directory over a non-empty directory, error
         if full_from.is_dir() && full_to.is_dir() {
-            let has_entries = fs::read_dir(&full_to)?
-                .filter_map(|e| e.ok())
-                .any(|e| {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    name != ".gitkeep"
-                });
+            let has_entries = fs::read_dir(&full_to)?.filter_map(|e| e.ok()).any(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name != ".gitkeep"
+            });
             if has_entries {
                 return Err(Error::DirectoryNotEmpty(to.to_string()));
             }
@@ -618,10 +612,13 @@ impl GitBackend {
         self.check_writable()?;
         self.validate_file_path(path)?;
         let full = self.abs_path(path);
-        let file = fs::OpenOptions::new().write(true).open(&full).map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => Error::NotFound(path.to_string()),
-            _ => Error::Io(e),
-        })?;
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&full)
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => Error::NotFound(path.to_string()),
+                _ => Error::Io(e),
+            })?;
         file.set_len(size)?;
         Ok(())
     }
@@ -675,10 +672,7 @@ impl GitBackend {
             return Err(Error::NotFound(path.to_string()));
         }
         let store = self.xattrs.read().unwrap();
-        Ok(store
-            .get(path)
-            .and_then(|attrs| attrs.get(name))
-            .cloned())
+        Ok(store.get(path).and_then(|attrs| attrs.get(name)).cloned())
     }
 
     /// Set extended attribute for a path.
@@ -720,10 +714,16 @@ impl GitBackend {
         let mut store = self.xattrs.write().unwrap();
         if let Some(attrs) = store.get_mut(path) {
             if attrs.remove(name).is_none() {
-                return Err(Error::NotFound(format!("xattr '{}' not found on '{}'", name, path)));
+                return Err(Error::NotFound(format!(
+                    "xattr '{}' not found on '{}'",
+                    name, path
+                )));
             }
         } else {
-            return Err(Error::NotFound(format!("xattr '{}' not found on '{}'", name, path)));
+            return Err(Error::NotFound(format!(
+                "xattr '{}' not found on '{}'",
+                name, path
+            )));
         }
         Ok(())
     }
@@ -731,11 +731,7 @@ impl GitBackend {
     // ==================== Tree building ==================================
 
     /// Recursively build a git tree object from the working directory.
-    fn build_tree_from_workdir(
-        &self,
-        repo: &gix::Repository,
-        rel_dir: &str,
-    ) -> Result<ObjectId> {
+    fn build_tree_from_workdir(&self, repo: &gix::Repository, rel_dir: &str) -> Result<ObjectId> {
         let abs_dir = self.abs_path(rel_dir);
 
         if !abs_dir.exists() || !abs_dir.is_dir() {
@@ -923,23 +919,18 @@ impl GitBackend {
     }
 
     /// Parse a commit object into CommitInfo (inner, takes repo reference).
-    fn parse_commit_inner(
-        &self,
-        repo: &gix::Repository,
-        oid: ObjectId,
-    ) -> Result<CommitInfo> {
+    fn parse_commit_inner(&self, repo: &gix::Repository, oid: ObjectId) -> Result<CommitInfo> {
         let obj = repo
             .find_object(oid)
             .map_err(|e| Error::Git(e.to_string()))?;
-        let commit = obj.try_into_commit().map_err(|e| Error::Git(e.to_string()))?;
+        let commit = obj
+            .try_into_commit()
+            .map_err(|e| Error::Git(e.to_string()))?;
         let decoded = commit.decode().map_err(|e| Error::Git(e.to_string()))?;
 
         let author_sig = decoded.author();
         let author = format!("{} <{}>", author_sig.name, author_sig.email);
-        let timestamp = author_sig
-            .time()
-            .map(|t| t.seconds)
-            .unwrap_or(0);
+        let timestamp = author_sig.time().map(|t| t.seconds).unwrap_or(0);
 
         let parent_ids: Vec<String> = decoded
             .parents()
@@ -1011,7 +1002,9 @@ impl GitBackend {
         let obj = repo
             .find_object(commit_oid)
             .map_err(|e| Error::Git(e.to_string()))?;
-        let commit = obj.try_into_commit().map_err(|e| Error::Git(e.to_string()))?;
+        let commit = obj
+            .try_into_commit()
+            .map_err(|e| Error::Git(e.to_string()))?;
         commit
             .tree_id()
             .map(|id| id.detach())
@@ -1279,17 +1272,19 @@ impl GitBackend {
         let obj = repo
             .find_object(oid)
             .map_err(|e| Error::Git(format!("commit not found: {}", e)))?;
-        let commit = obj.try_into_commit().map_err(|e| Error::Git(e.to_string()))?;
+        let commit = obj
+            .try_into_commit()
+            .map_err(|e| Error::Git(e.to_string()))?;
         let tree = commit.tree().map_err(|e| Error::Git(e.to_string()))?;
 
         let entry = tree
             .lookup_entry_by_path(path)
             .map_err(|e| Error::Git(e.to_string()))?
-            .ok_or_else(|| Error::NotFound(format!("'{}' not found at commit {}", path, commit_id)))?;
+            .ok_or_else(|| {
+                Error::NotFound(format!("'{}' not found at commit {}", path, commit_id))
+            })?;
 
-        let blob_obj = entry
-            .object()
-            .map_err(|e| Error::Git(e.to_string()))?;
+        let blob_obj = entry.object().map_err(|e| Error::Git(e.to_string()))?;
         Ok(blob_obj.data.to_vec())
     }
 

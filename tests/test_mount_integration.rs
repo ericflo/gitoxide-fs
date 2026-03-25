@@ -8,8 +8,8 @@
 mod common;
 
 use common::TestFixture;
-use gitoxide_fs::{GitBackend, GitFs};
 use gitoxide_fs::git::FileType;
+use gitoxide_fs::{GitBackend, GitFs};
 use serial_test::serial;
 
 // =============================================================================
@@ -98,7 +98,10 @@ fn mount_read_only_rejects_writes() {
 
     // Writes should fail at the FS level
     let write_result = std::fs::write(fix.mount_path().join("new.txt"), b"blocked");
-    assert!(write_result.is_err(), "writes should fail on read-only mount");
+    assert!(
+        write_result.is_err(),
+        "writes should fail on read-only mount"
+    );
 
     GitFs::unmount(fix.mount_path()).expect("unmount");
 }
@@ -147,7 +150,10 @@ fn mount_same_repo_at_two_paths_should_error() {
     let mount2 = tempfile::TempDir::new().expect("create second mount point");
     let gitfs2 = GitFs::new(config).expect("create GitFs 2");
     let result = gitfs2.mount(mount2.path());
-    assert!(result.is_err(), "mounting same repo at two paths should error");
+    assert!(
+        result.is_err(),
+        "mounting same repo at two paths should error"
+    );
 
     GitFs::unmount(fix.mount_path()).expect("unmount");
 }
@@ -174,7 +180,10 @@ fn dotgit_not_visible_in_mount() {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
 
-    assert!(!entries.contains(&".git".to_string()), ".git should be hidden");
+    assert!(
+        !entries.contains(&".git".to_string()),
+        ".git should be hidden"
+    );
     assert!(entries.contains(&"visible.txt".to_string()));
 
     // Direct access to .git should fail
@@ -199,8 +208,8 @@ fn fuse_getattr_returns_correct_file_size() {
     let gitfs = GitFs::new(fix.config()).expect("create GitFs");
     gitfs.mount(fix.mount_path()).expect("mount");
 
-    let metadata = std::fs::metadata(fix.mount_path().join("sized.txt"))
-        .expect("stat mounted file");
+    let metadata =
+        std::fs::metadata(fix.mount_path().join("sized.txt")).expect("stat mounted file");
     assert_eq!(metadata.len(), 12, "file size should be 12 bytes");
     assert!(metadata.is_file());
 
@@ -219,8 +228,7 @@ fn fuse_getattr_directory() {
     // Create a directory through the mount
     std::fs::create_dir(fix.mount_path().join("subdir")).expect("mkdir via mount");
 
-    let metadata = std::fs::metadata(fix.mount_path().join("subdir"))
-        .expect("stat mounted dir");
+    let metadata = std::fs::metadata(fix.mount_path().join("subdir")).expect("stat mounted dir");
     assert!(metadata.is_dir());
 
     GitFs::unmount(fix.mount_path()).expect("unmount");

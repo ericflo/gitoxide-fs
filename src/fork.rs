@@ -444,8 +444,12 @@ impl ForkManager {
         let parent_tree = self.backend.tree_at_commit(&parent_commit)?;
         let fork_tree = self.backend.tree_at_commit(&fork_commit)?;
 
-        let (conflicts, _, _) =
-            self.three_way_merge(&base_tree, &parent_tree, &fork_tree, &MergeStrategy::ThreeWay);
+        let (conflicts, _, _) = self.three_way_merge(
+            &base_tree,
+            &parent_tree,
+            &fork_tree,
+            &MergeStrategy::ThreeWay,
+        );
         Ok(conflicts.is_empty())
     }
 

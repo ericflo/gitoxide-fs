@@ -3,7 +3,7 @@
 mod common;
 
 use common::TestFixture;
-use gitoxide_fs::{GitBackend, GitFs, ForkManager};
+use gitoxide_fs::{ForkManager, GitBackend, GitFs};
 
 // =============================================================================
 // AGENT CREATES PROJECT FROM SCRATCH
@@ -16,7 +16,14 @@ fn agent_creates_project_structure() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     // Simulate an agent creating a typical project structure
-    let dirs = vec!["src", "src/components", "src/utils", "tests", "docs", "config"];
+    let dirs = vec![
+        "src",
+        "src/components",
+        "src/utils",
+        "tests",
+        "docs",
+        "config",
+    ];
     for dir in &dirs {
         backend.create_dir(dir).expect("create project dir");
     }
@@ -27,17 +34,27 @@ fn agent_creates_project_structure() {
         ("src/lib.rs", b"pub mod components;\npub mod utils;\n"),
         ("src/components/mod.rs", b"// Components\n"),
         ("src/utils/mod.rs", b"// Utilities\n"),
-        ("tests/integration.rs", b"#[test]\nfn it_works() { assert!(true); }\n"),
+        (
+            "tests/integration.rs",
+            b"#[test]\nfn it_works() { assert!(true); }\n",
+        ),
         ("config/default.toml", b"[server]\nport = 8080\n"),
-        ("Cargo.toml", b"[package]\nname = \"my-project\"\nversion = \"0.1.0\"\n"),
+        (
+            "Cargo.toml",
+            b"[package]\nname = \"my-project\"\nversion = \"0.1.0\"\n",
+        ),
         (".gitignore", b"target/\n*.swp\n"),
     ];
 
     for (path, content) in &files {
-        backend.write_file(path, content).expect("write project file");
+        backend
+            .write_file(path, content)
+            .expect("write project file");
     }
 
-    backend.commit("Initial project scaffold").expect("commit scaffold");
+    backend
+        .commit("Initial project scaffold")
+        .expect("commit scaffold");
 
     // Verify structure
     let log = backend.log(Some(1)).expect("get log");
@@ -45,7 +62,11 @@ fn agent_creates_project_structure() {
 
     for (path, expected) in &files {
         let content = backend.read_file(path).expect("read project file");
-        assert_eq!(&content, expected, "file {} should have correct content", path);
+        assert_eq!(
+            &content, expected,
+            "file {} should have correct content",
+            path
+        );
     }
 }
 
@@ -56,19 +77,31 @@ fn agent_modifies_files_iteratively() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     // Initial version
-    backend.write_file("app.py", b"print('v1')").expect("write v1");
+    backend
+        .write_file("app.py", b"print('v1')")
+        .expect("write v1");
     backend.commit("v1").expect("commit v1");
 
     // Agent makes iterative improvements
-    backend.write_file("app.py", b"def main():\n    print('v2')\n\nmain()").expect("write v2");
+    backend
+        .write_file("app.py", b"def main():\n    print('v2')\n\nmain()")
+        .expect("write v2");
     backend.commit("v2: add main function").expect("commit v2");
 
-    backend.write_file("app.py", b"import sys\n\ndef main():\n    print('v3')\n    return 0\n\nsys.exit(main())").expect("write v3");
+    backend
+        .write_file(
+            "app.py",
+            b"import sys\n\ndef main():\n    print('v3')\n    return 0\n\nsys.exit(main())",
+        )
+        .expect("write v3");
     backend.commit("v3: add proper exit").expect("commit v3");
 
     // Full history should be available
     let log = backend.log(None).expect("get log");
-    assert!(log.len() >= 3, "should have commit history for all iterations");
+    assert!(
+        log.len() >= 3,
+        "should have commit history for all iterations"
+    );
 }
 
 // =============================================================================
@@ -82,16 +115,20 @@ fn two_agents_parallel_forks() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     // Setup shared codebase
-    backend.write_file("shared.py", b"# Shared module\ndef hello(): pass\n").expect("write shared");
+    backend
+        .write_file("shared.py", b"# Shared module\ndef hello(): pass\n")
+        .expect("write shared");
     backend.commit("initial codebase").expect("commit");
 
     let fm = ForkManager::new(backend);
 
     // Agent 1 works on feature A
-    fm.create_fork("agent-1-feature-a").expect("create agent 1 fork");
+    fm.create_fork("agent-1-feature-a")
+        .expect("create agent 1 fork");
 
     // Agent 2 works on feature B (simultaneously)
-    fm.create_fork("agent-2-feature-b").expect("create agent 2 fork");
+    fm.create_fork("agent-2-feature-b")
+        .expect("create agent 2 fork");
 
     // Both forks exist independently
     let forks = fm.list_forks().expect("list forks");
@@ -111,7 +148,9 @@ fn agent_fork_work_merge_cycle() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("main.rs", b"fn main() {}").expect("write");
+    backend
+        .write_file("main.rs", b"fn main() {}")
+        .expect("write");
     backend.commit("initial").expect("commit");
 
     let fm = ForkManager::new(backend);
@@ -143,7 +182,9 @@ fn agent_checkpoint_before_risky_change() {
     let gitfs = GitFs::new(config).expect("create gitfs");
 
     // Agent creates a checkpoint before a risky operation
-    let checkpoint = gitfs.checkpoint("before-risky-refactor").expect("create checkpoint");
+    let checkpoint = gitfs
+        .checkpoint("before-risky-refactor")
+        .expect("create checkpoint");
     assert!(!checkpoint.is_empty());
 }
 
@@ -156,17 +197,23 @@ fn agent_rollback_after_failed_change() {
     let gitfs = GitFs::new(fix.config()).expect("create gitfs");
 
     // Write known good state
-    backend.write_file("stable.txt", b"good state").expect("write good state");
+    backend
+        .write_file("stable.txt", b"good state")
+        .expect("write good state");
     let checkpoint = gitfs.checkpoint("known-good").expect("checkpoint");
 
     // Simulate bad changes
-    backend.write_file("stable.txt", b"broken state").expect("write broken");
+    backend
+        .write_file("stable.txt", b"broken state")
+        .expect("write broken");
 
     // Rollback
     gitfs.rollback(&checkpoint).expect("rollback");
 
     // File should be back to good state
-    let content = backend.read_file("stable.txt").expect("read after rollback");
+    let content = backend
+        .read_file("stable.txt")
+        .expect("read after rollback");
     assert_eq!(content, b"good state");
 }
 
@@ -183,14 +230,17 @@ fn browse_file_at_historical_commit() {
     let mut commits = Vec::new();
     for i in 0..5 {
         let content = format!("version {}", i);
-        backend.write_file("evolving.txt", content.as_bytes()).expect("write");
+        backend
+            .write_file("evolving.txt", content.as_bytes())
+            .expect("write");
         let commit_id = backend.commit(&format!("version {}", i)).expect("commit");
         commits.push(commit_id);
     }
 
     // Read file at each historical point
     for (i, commit_id) in commits.iter().enumerate() {
-        let content = backend.read_file_at_commit("evolving.txt", commit_id)
+        let content = backend
+            .read_file_at_commit("evolving.txt", commit_id)
             .expect("read at commit");
         let expected = format!("version {}", i);
         assert_eq!(content, expected.as_bytes(), "version {} mismatch", i);
@@ -210,11 +260,16 @@ fn auto_commit_mode_creates_commits_on_write() {
     config.commit.debounce_ms = 0; // No debounce for testing
 
     let backend = GitBackend::open(&config).expect("open backend");
-    backend.write_file("auto.txt", b"auto-committed").expect("write");
+    backend
+        .write_file("auto.txt", b"auto-committed")
+        .expect("write");
 
     // In auto-commit mode, the write itself should trigger a commit
     let log = backend.log(Some(1)).expect("get log");
-    assert!(!log.is_empty(), "auto-commit should create a commit on write");
+    assert!(
+        !log.is_empty(),
+        "auto-commit should create a commit on write"
+    );
 }
 
 #[test]
@@ -225,7 +280,9 @@ fn manual_commit_mode_no_auto_commits() {
     config.commit.auto_commit = false;
 
     let backend = GitBackend::open(&config).expect("open backend");
-    backend.write_file("manual.txt", b"not committed yet").expect("write");
+    backend
+        .write_file("manual.txt", b"not committed yet")
+        .expect("write");
 
     // In manual mode, no commit should be created yet
     let log = backend.log(None).expect("get log");
@@ -250,7 +307,9 @@ fn debounce_batches_rapid_writes() {
 
     // Rapidly write multiple files
     for i in 0..10 {
-        backend.write_file(&format!("rapid_{}.txt", i), b"x").expect("rapid write");
+        backend
+            .write_file(&format!("rapid_{}.txt", i), b"x")
+            .expect("rapid write");
     }
 
     // Wait for debounce to trigger
@@ -277,7 +336,9 @@ fn debounce_respects_max_batch_size() {
     let backend = GitBackend::open(&config).expect("open backend");
 
     for i in 0..20 {
-        backend.write_file(&format!("batch_{}.txt", i), b"x").expect("write");
+        backend
+            .write_file(&format!("batch_{}.txt", i), b"x")
+            .expect("write");
     }
 
     let log = backend.log(None).expect("get log");
@@ -301,7 +362,9 @@ fn custom_commit_author() {
     config.commit.author_email = "smith@matrix.ai".to_string();
 
     let backend = GitBackend::open(&config).expect("open backend");
-    backend.write_file("authored.txt", b"by smith").expect("write");
+    backend
+        .write_file("authored.txt", b"by smith")
+        .expect("write");
     backend.commit("smith was here").expect("commit");
 
     let log = backend.log(Some(1)).expect("get log");
@@ -330,10 +393,14 @@ fn agent_generates_test_suite() {
             "#[test]\nfn test_function_{:03}() {{\n    assert!(true);\n}}\n",
             i
         );
-        backend.write_file(&path, content.as_bytes()).expect("write test file");
+        backend
+            .write_file(&path, content.as_bytes())
+            .expect("write test file");
     }
 
-    backend.commit("Generate comprehensive test suite").expect("commit");
+    backend
+        .commit("Generate comprehensive test suite")
+        .expect("commit");
 
     let entries = backend.list_dir("tests").expect("list tests");
     assert_eq!(entries.len(), 100);
@@ -346,7 +413,9 @@ fn agent_refactors_with_full_history() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     // Step 1: Initial code
-    backend.write_file("lib.rs", b"pub fn add(a: i32, b: i32) -> i32 { a + b }").expect("write");
+    backend
+        .write_file("lib.rs", b"pub fn add(a: i32, b: i32) -> i32 { a + b }")
+        .expect("write");
     let c1 = backend.commit("initial implementation").expect("commit");
 
     // Step 2: Add tests
@@ -376,7 +445,10 @@ fn create_gitfs_from_config() {
     fix.init_repo();
     let config = fix.config();
     let result = GitFs::new(config);
-    assert!(result.is_ok() || result.is_err(), "GitFs::new should not panic");
+    assert!(
+        result.is_ok() || result.is_err(),
+        "GitFs::new should not panic"
+    );
     // Will fail with todo!() but should compile
 }
 

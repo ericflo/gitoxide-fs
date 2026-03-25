@@ -61,10 +61,13 @@ fn cli_mount_with_options() {
     let _result = cmd()
         .args([
             "mount",
-            "--repo", repo.path().to_str().unwrap(),
-            "--mount", mount.path().to_str().unwrap(),
+            "--repo",
+            repo.path().to_str().unwrap(),
+            "--mount",
+            mount.path().to_str().unwrap(),
             "--read-only",
-            "--debounce-ms", "1000",
+            "--debounce-ms",
+            "1000",
             "--verbose",
         ])
         .assert();
@@ -175,10 +178,7 @@ fn cli_rollback_help() {
 
 #[test]
 fn cli_unknown_command() {
-    cmd()
-        .arg("invalid-command")
-        .assert()
-        .failure();
+    cmd().arg("invalid-command").assert().failure();
 }
 
 #[test]

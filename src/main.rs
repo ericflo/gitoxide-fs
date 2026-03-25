@@ -195,12 +195,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             // Initialize logging
             init_logging(&config.log_level);
 
-            println!("Mounting {} at {}", config.repo_path.display(), mount.display());
+            println!(
+                "Mounting {} at {}",
+                config.repo_path.display(),
+                mount.display()
+            );
 
             let gitfs = GitFs::new(config)?;
             gitfs.mount(&mount)?;
 
-            println!("Mounted successfully. Use 'gitoxide-fs unmount --mount {}' to unmount.", mount.display());
+            println!(
+                "Mounted successfully. Use 'gitoxide-fs unmount --mount {}' to unmount.",
+                mount.display()
+            );
 
             // If not daemonized, block forever (FUSE session runs in background thread)
             if !daemon {
@@ -255,7 +262,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 if forks.is_empty() {
                     println!("No forks found.");
                 } else {
-                    println!("{:<20} {:<25} {:<15} {}", "NAME", "BRANCH", "AHEAD", "MERGED");
+                    println!(
+                        "{:<20} {:<25} {:<15} {}",
+                        "NAME", "BRANCH", "AHEAD", "MERGED"
+                    );
                     println!("{}", "-".repeat(70));
                     for fork in &forks {
                         println!(
@@ -269,7 +279,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            ForkCommands::Merge { mount, name, strategy } => {
+            ForkCommands::Merge {
+                mount,
+                name,
+                strategy,
+            } => {
                 let mut config = Config::new(mount, PathBuf::new());
                 config.fork.merge_strategy = parse_merge_strategy(&strategy)?;
 
@@ -282,7 +296,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 println!("Commit:        {}", result.commit_id);
                 println!("Files changed: {}", result.files_changed);
                 if result.had_conflicts {
-                    println!("Conflicts:     {} (resolved with strategy '{}')", result.conflicts.len(), strategy);
+                    println!(
+                        "Conflicts:     {} (resolved with strategy '{}')",
+                        result.conflicts.len(),
+                        strategy
+                    );
                 }
             }
 
@@ -320,14 +338,17 @@ fn parse_merge_strategy(s: &str) -> Result<MergeStrategy, Box<dyn std::error::Er
         "ours" => Ok(MergeStrategy::Ours),
         "theirs" => Ok(MergeStrategy::Theirs),
         "rebase" => Ok(MergeStrategy::Rebase),
-        _ => Err(format!("unknown merge strategy '{}' (valid: three-way, ours, theirs, rebase)", s).into()),
+        _ => Err(format!(
+            "unknown merge strategy '{}' (valid: three-way, ours, theirs, rebase)",
+            s
+        )
+        .into()),
     }
 }
 
 fn init_logging(level: &str) {
     use tracing_subscriber::EnvFilter;
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)

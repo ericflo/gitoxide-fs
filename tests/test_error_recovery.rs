@@ -19,7 +19,9 @@ fn filename_at_max_length_255_chars() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     let name = "a".repeat(255);
-    backend.write_file(&name, b"max length").expect("write 255-char filename");
+    backend
+        .write_file(&name, b"max length")
+        .expect("write 255-char filename");
     let content = backend.read_file(&name).expect("read 255-char filename");
     assert_eq!(content, b"max length");
 }
@@ -138,7 +140,10 @@ fn file_with_only_spaces() {
 
     // Filenames that are only whitespace should be rejected or handled gracefully
     let result = backend.write_file("   ", b"content");
-    assert!(result.is_err(), "whitespace-only filename should be rejected");
+    assert!(
+        result.is_err(),
+        "whitespace-only filename should be rejected"
+    );
 }
 
 #[test]
@@ -151,7 +156,9 @@ fn file_with_leading_dash() {
     backend
         .write_file("-flag-like.txt", b"content")
         .expect("write file with leading dash");
-    let content = backend.read_file("-flag-like.txt").expect("read file with leading dash");
+    let content = backend
+        .read_file("-flag-like.txt")
+        .expect("read file with leading dash");
     assert_eq!(content, b"content");
 }
 
@@ -210,7 +217,10 @@ fn corrupt_git_object_graceful_error_on_read() {
 
     // Working tree reads should still work (file is on disk)
     let content = backend.read_file("good.txt");
-    assert!(content.is_ok(), "working tree read should succeed despite corrupt objects");
+    assert!(
+        content.is_ok(),
+        "working tree read should succeed despite corrupt objects"
+    );
 
     // Git log needs to traverse objects — should error or return empty, not panic
     let log_result = backend.log(Some(10));
@@ -305,7 +315,9 @@ fn list_dir_on_regular_file() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("a_file.txt", b"data").expect("write file");
+    backend
+        .write_file("a_file.txt", b"data")
+        .expect("write file");
 
     let result = backend.list_dir("a_file.txt");
     assert!(result.is_err(), "listing a file as directory should error");
@@ -365,9 +377,13 @@ fn rename_to_self_is_noop() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     backend.write_file("same.txt", b"data").expect("write file");
-    backend.rename("same.txt", "same.txt").expect("rename to self");
+    backend
+        .rename("same.txt", "same.txt")
+        .expect("rename to self");
 
-    let content = backend.read_file("same.txt").expect("read after self-rename");
+    let content = backend
+        .read_file("same.txt")
+        .expect("read after self-rename");
     assert_eq!(content, b"data");
 }
 
