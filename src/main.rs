@@ -1,4 +1,4 @@
-//! gitoxide-fs CLI — mount a git repo as a FUSE filesystem.
+//! gofs CLI — mount a git repo as a FUSE filesystem.
 
 use std::path::PathBuf;
 use std::process;
@@ -12,7 +12,7 @@ use gitoxide_fs::git::GitBackend;
 
 #[derive(Parser)]
 #[command(
-    name = "gitoxide-fs",
+    name = "gofs",
     about = "A blazing-fast FUSE filesystem backed by git",
     version
 )]
@@ -205,7 +205,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             gitfs.mount(&mount)?;
 
             println!(
-                "Mounted successfully. Use 'gitoxide-fs unmount --mount {}' to unmount.",
+                "Mounted successfully. Use 'gofs unmount --mount {}' to unmount.",
                 mount.display()
             );
 
