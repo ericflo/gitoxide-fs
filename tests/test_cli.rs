@@ -92,10 +92,7 @@ fn cli_unmount_requires_mountpoint() {
         .arg("unmount")
         .assert()
         .failure()
-        .stderr(
-            predicate::str::contains("mountpoint")
-                .or(predicate::str::contains("MOUNTPOINT")),
-        );
+        .stderr(predicate::str::contains("mountpoint").or(predicate::str::contains("MOUNTPOINT")));
 }
 
 // =============================================================================
