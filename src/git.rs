@@ -52,6 +52,8 @@ pub struct GitBackend {
     repo: Mutex<gix::Repository>,
     bare: bool,
     xattrs: RwLock<HashMap<String, HashMap<String, Vec<u8>>>>,
+    /// Tracks dirty files for auto-commit batching.
+    dirty_files: Mutex<Vec<String>>,
 }
 
 /// A directory entry.
@@ -128,6 +130,7 @@ impl GitBackend {
             repo: Mutex::new(repo),
             bare,
             xattrs: RwLock::new(HashMap::new()),
+            dirty_files: Mutex::new(Vec::new()),
         })
     }
 
@@ -141,6 +144,7 @@ impl GitBackend {
             repo: Mutex::new(repo),
             bare: false,
             xattrs: RwLock::new(HashMap::new()),
+            dirty_files: Mutex::new(Vec::new()),
         })
     }
 
@@ -155,6 +159,7 @@ impl GitBackend {
             repo: Mutex::new(repo),
             bare,
             xattrs: RwLock::new(HashMap::new()),
+            dirty_files: Mutex::new(Vec::new()),
         })
     }
 
@@ -352,7 +357,43 @@ impl GitBackend {
             }
         }
         fs::write(&full, content).map_err(|e| Error::Io(e))?;
+
+        // Auto-commit logic
+        if self.config.commit.auto_commit {
+            let mut dirty = self.dirty_files.lock().unwrap();
+            dirty.push(path.to_string());
+            let batch_size = self.config.commit.max_batch_size;
+            let debounce_ms = self.config.commit.debounce_ms;
+
+            if debounce_ms == 0 {
+                // No debounce — commit immediately on each write
+                let files: Vec<String> = dirty.drain(..).collect();
+                drop(dirty);
+                let msg = format!("Auto-commit: {}", files.join(", "));
+                self.commit(&msg)?;
+            } else if batch_size > 0 && dirty.len() >= batch_size {
+                // Batch limit reached — commit now
+                let files: Vec<String> = dirty.drain(..).collect();
+                drop(dirty);
+                let msg = format!("Auto-commit batch: {}", files.join(", "));
+                self.commit(&msg)?;
+            }
+            // Otherwise: debounce is active and batch limit not reached — wait
+        }
+
         Ok(())
+    }
+
+    /// Flush any pending dirty files as a commit (for debounce trigger).
+    pub fn flush_pending_auto_commit(&self) -> Result<Option<String>> {
+        let mut dirty = self.dirty_files.lock().unwrap();
+        if dirty.is_empty() {
+            return Ok(None);
+        }
+        let files: Vec<String> = dirty.drain(..).collect();
+        drop(dirty);
+        let msg = format!("Auto-commit: {}", files.join(", "));
+        self.commit(&msg).map(Some)
     }
 
     /// Delete a file from the working tree.
