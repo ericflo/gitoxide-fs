@@ -30,28 +30,25 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     // --- Scenario 1: Default settings (good for most uses) ---
-    let default_config = Config::new(
-        PathBuf::from("/tmp/repo"),
-        PathBuf::from("/tmp/mount"),
-    );
+    let default_config = Config::new(PathBuf::from("/tmp/repo"), PathBuf::from("/tmp/mount"));
 
     println!("Scenario 1: Default settings");
     println!("  Auto-commit: {}", default_config.commit.auto_commit);
     println!("  Debounce: {}ms", default_config.commit.debounce_ms);
     println!("  Max batch size: {}", default_config.commit.max_batch_size);
-    println!("  Author: {} <{}>", default_config.commit.author_name, default_config.commit.author_email);
+    println!(
+        "  Author: {} <{}>",
+        default_config.commit.author_name, default_config.commit.author_email
+    );
     println!("  → Good for interactive use and typical agent workflows.");
     println!();
 
     // --- Scenario 2: Fast commits for fine-grained history ---
-    let mut fast_config = Config::new(
-        PathBuf::from("/tmp/repo"),
-        PathBuf::from("/tmp/mount"),
-    );
+    let mut fast_config = Config::new(PathBuf::from("/tmp/repo"), PathBuf::from("/tmp/mount"));
     fast_config.commit = CommitConfig {
         auto_commit: true,
-        debounce_ms: 100,       // Commit quickly after writes
-        max_batch_size: 10,     // Small batches for granular history
+        debounce_ms: 100,   // Commit quickly after writes
+        max_batch_size: 10, // Small batches for granular history
         author_name: "agent-fast".to_string(),
         author_email: "agent@fast.local".to_string(),
     };
@@ -63,14 +60,11 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     // --- Scenario 3: Bulk operations (high throughput) ---
-    let mut bulk_config = Config::new(
-        PathBuf::from("/tmp/repo"),
-        PathBuf::from("/tmp/mount"),
-    );
+    let mut bulk_config = Config::new(PathBuf::from("/tmp/repo"), PathBuf::from("/tmp/mount"));
     bulk_config.commit = CommitConfig {
         auto_commit: true,
-        debounce_ms: 2000,      // Wait 2 seconds after last write
-        max_batch_size: 500,    // Allow large batches
+        debounce_ms: 2000,   // Wait 2 seconds after last write
+        max_batch_size: 500, // Allow large batches
         author_name: "agent-bulk".to_string(),
         author_email: "agent@bulk.local".to_string(),
     };
@@ -82,10 +76,7 @@ fn main() -> anyhow::Result<()> {
     println!();
 
     // --- Scenario 4: Manual commit only ---
-    let mut manual_config = Config::new(
-        PathBuf::from("/tmp/repo"),
-        PathBuf::from("/tmp/mount"),
-    );
+    let mut manual_config = Config::new(PathBuf::from("/tmp/repo"), PathBuf::from("/tmp/mount"));
     manual_config.commit.auto_commit = false;
 
     println!("Scenario 4: Manual commit (auto_commit = false)");

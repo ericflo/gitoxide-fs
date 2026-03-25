@@ -55,7 +55,10 @@ fn main() -> anyhow::Result<()> {
     println!("  Auto-commit: {}", config.commit.auto_commit);
     println!("  Debounce: {}ms", config.commit.debounce_ms);
     println!();
-    println!("Files written to {} will be auto-committed to git.", mount_point.display());
+    println!(
+        "Files written to {} will be auto-committed to git.",
+        mount_point.display()
+    );
     println!("Press Ctrl+C to unmount and exit.");
 
     // In a real application, you would now create a GitBackend and GitFs,
@@ -68,7 +71,11 @@ fn main() -> anyhow::Result<()> {
 
     println!();
     println!("Configuration object created successfully.");
-    println!("To actually mount, use the CLI: gofs mount {} {}", repo_path.display(), mount_point.display());
+    println!(
+        "To actually mount, use the CLI: gofs mount {} {}",
+        repo_path.display(),
+        mount_point.display()
+    );
 
     Ok(())
 }

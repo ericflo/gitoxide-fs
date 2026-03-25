@@ -66,10 +66,22 @@ fn main() -> anyhow::Result<()> {
     // Show all available merge strategies.
     println!("Available merge strategies:");
     let strategies = [
-        (MergeStrategy::ThreeWay, "Standard three-way merge — detects and reports conflicts"),
-        (MergeStrategy::Ours, "Our side wins on conflicts — good for 'primary agent' patterns"),
-        (MergeStrategy::Theirs, "Their side wins — good for 'defer to fork' patterns"),
-        (MergeStrategy::Rebase, "Rebase fork onto parent — linear history, may need conflict resolution"),
+        (
+            MergeStrategy::ThreeWay,
+            "Standard three-way merge — detects and reports conflicts",
+        ),
+        (
+            MergeStrategy::Ours,
+            "Our side wins on conflicts — good for 'primary agent' patterns",
+        ),
+        (
+            MergeStrategy::Theirs,
+            "Their side wins — good for 'defer to fork' patterns",
+        ),
+        (
+            MergeStrategy::Rebase,
+            "Rebase fork onto parent — linear history, may need conflict resolution",
+        ),
     ];
     for (strategy, description) in &strategies {
         println!("  {:?}: {}", strategy, description);
