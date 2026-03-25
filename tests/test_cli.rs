@@ -44,26 +44,25 @@ fn cli_mount_help() {
 }
 
 #[test]
-fn cli_mount_requires_repo_and_mount() {
+fn cli_mount_requires_repo_and_mountpoint() {
+    // With no args, clap should error about missing positional args
     cmd()
         .arg("mount")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("--repo"));
+        .stderr(predicate::str::contains("repo").or(predicate::str::contains("REPO")));
 }
 
 #[test]
-fn cli_mount_with_options() {
-    // This will fail because todo!() but should parse args correctly
+fn cli_mount_with_positional_args() {
+    // Positional args: gofs mount <repo> <mountpoint> [OPTIONS]
     let repo = TempDir::new().expect("temp dir");
     let mount = TempDir::new().expect("temp dir");
 
     let _result = cmd()
         .args([
             "mount",
-            "--repo",
             repo.path().to_str().unwrap(),
-            "--mount",
             mount.path().to_str().unwrap(),
             "--read-only",
             "--debounce-ms",
@@ -71,8 +70,7 @@ fn cli_mount_with_options() {
             "--verbose",
         ])
         .assert();
-    // Will fail at runtime (todo!) but should parse args
-    // We just verify the binary exists and args are accepted
+    // Will fail at runtime (git init) but should parse args
 }
 
 // =============================================================================
@@ -88,6 +86,18 @@ fn cli_unmount_help() {
         .stdout(predicate::str::contains("Unmount"));
 }
 
+#[test]
+fn cli_unmount_requires_mountpoint() {
+    cmd()
+        .arg("unmount")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("mountpoint")
+                .or(predicate::str::contains("MOUNTPOINT")),
+        );
+}
+
 // =============================================================================
 // STATUS COMMAND
 // =============================================================================
@@ -99,6 +109,15 @@ fn cli_status_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("status"));
+}
+
+#[test]
+fn cli_status_requires_path() {
+    cmd()
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("path").or(predicate::str::contains("PATH")));
 }
 
 // =============================================================================
@@ -124,6 +143,16 @@ fn cli_fork_create_help() {
 }
 
 #[test]
+fn cli_fork_create_requires_name_and_repo() {
+    // Missing both name and --repo
+    cmd()
+        .args(["fork", "create"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("name").or(predicate::str::contains("NAME")));
+}
+
+#[test]
 fn cli_fork_list_help() {
     cmd()
         .args(["fork", "list", "--help"])
@@ -139,6 +168,15 @@ fn cli_fork_merge_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Merge"));
+}
+
+#[test]
+fn cli_fork_merge_requires_name_and_repo() {
+    cmd()
+        .args(["fork", "merge"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("name").or(predicate::str::contains("NAME")));
 }
 
 #[test]
@@ -164,12 +202,30 @@ fn cli_checkpoint_help() {
 }
 
 #[test]
+fn cli_checkpoint_requires_name_and_repo() {
+    cmd()
+        .arg("checkpoint")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("name").or(predicate::str::contains("NAME")));
+}
+
+#[test]
 fn cli_rollback_help() {
     cmd()
         .args(["rollback", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Rollback"));
+}
+
+#[test]
+fn cli_rollback_requires_commit_and_repo() {
+    cmd()
+        .arg("rollback")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("commit").or(predicate::str::contains("COMMIT")));
 }
 
 // =============================================================================

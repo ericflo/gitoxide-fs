@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::process;
+use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 
@@ -24,14 +25,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Mount a git repository as a FUSE filesystem.
+    ///
+    /// Usage: gofs mount /path/to/repo /mnt/work [OPTIONS]
     Mount {
         /// Path to the git repository.
-        #[arg(short, long)]
         repo: PathBuf,
 
         /// Mount point.
-        #[arg(short, long)]
-        mount: PathBuf,
+        mountpoint: PathBuf,
 
         /// Mount in read-only mode.
         #[arg(long)]
@@ -59,17 +60,19 @@ enum Commands {
     },
 
     /// Unmount a gitoxide-fs filesystem.
+    ///
+    /// Usage: gofs unmount /mnt/work
     Unmount {
         /// Mount point to unmount.
-        #[arg(short, long)]
-        mount: PathBuf,
+        mountpoint: PathBuf,
     },
 
     /// Show status of a mounted filesystem.
+    ///
+    /// Usage: gofs status /mnt/work
     Status {
-        /// Path to the git repository.
-        #[arg(short, long)]
-        mount: PathBuf,
+        /// Mount point or repository path.
+        path: PathBuf,
     },
 
     /// Fork management commands.
@@ -79,39 +82,42 @@ enum Commands {
     },
 
     /// Create a checkpoint (commit + tag).
+    ///
+    /// Usage: gofs checkpoint my-checkpoint --repo /path/to/repo
     Checkpoint {
-        /// Path to the git repository.
-        #[arg(short, long)]
-        mount: PathBuf,
-
         /// Checkpoint name.
-        #[arg(short, long)]
         name: String,
+
+        /// Path to the git repository.
+        #[arg(long)]
+        repo: PathBuf,
     },
 
     /// Rollback to a previous commit.
+    ///
+    /// Usage: gofs rollback abc1234 --repo /path/to/repo
     Rollback {
-        /// Path to the git repository.
-        #[arg(short, long)]
-        mount: PathBuf,
-
         /// Commit ID to rollback to.
-        #[arg(short, long)]
         commit: String,
+
+        /// Path to the git repository.
+        #[arg(long)]
+        repo: PathBuf,
     },
 }
 
 #[derive(Subcommand)]
 enum ForkCommands {
     /// Create a new fork.
+    ///
+    /// Usage: gofs fork create my-feature --repo /path/to/repo
     Create {
-        /// Path to the git repository.
-        #[arg(short, long)]
-        mount: PathBuf,
-
         /// Name for the fork.
-        #[arg(short, long)]
         name: String,
+
+        /// Path to the git repository.
+        #[arg(long)]
+        repo: PathBuf,
 
         /// Create fork at a specific commit.
         #[arg(long)]
@@ -119,21 +125,24 @@ enum ForkCommands {
     },
 
     /// List all forks.
+    ///
+    /// Usage: gofs fork list --repo /path/to/repo
     List {
         /// Path to the git repository.
-        #[arg(short, long)]
-        mount: PathBuf,
+        #[arg(long)]
+        repo: PathBuf,
     },
 
     /// Merge a fork back into its parent.
+    ///
+    /// Usage: gofs fork merge my-feature --repo /path/to/repo
     Merge {
-        /// Path to the git repository.
-        #[arg(short, long)]
-        mount: PathBuf,
-
         /// Fork name to merge.
-        #[arg(short, long)]
         name: String,
+
+        /// Path to the git repository.
+        #[arg(long)]
+        repo: PathBuf,
 
         /// Merge strategy.
         #[arg(long, default_value = "three-way")]
@@ -141,14 +150,15 @@ enum ForkCommands {
     },
 
     /// Abandon (delete) a fork.
+    ///
+    /// Usage: gofs fork abandon my-feature --repo /path/to/repo
     Abandon {
-        /// Path to the git repository.
-        #[arg(short, long)]
-        mount: PathBuf,
-
         /// Fork name to abandon.
-        #[arg(short, long)]
         name: String,
+
+        /// Path to the git repository.
+        #[arg(long)]
+        repo: PathBuf,
     },
 }
 
@@ -165,7 +175,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::Mount {
             repo,
-            mount,
+            mountpoint,
             read_only,
             daemon,
             config: config_path,
@@ -176,12 +186,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let mut config = if let Some(path) = config_path {
                 Config::from_file(&path)?
             } else {
-                Config::new(repo.clone(), mount.clone())
+                Config::new(repo.clone(), mountpoint.clone())
             };
 
             // Override config with CLI flags
             config.repo_path = repo;
-            config.mount_point = mount.clone();
+            config.mount_point = mountpoint.clone();
             config.read_only = read_only;
             config.daemon = daemon;
             config.commit.debounce_ms = debounce_ms;
@@ -198,33 +208,43 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             println!(
                 "Mounting {} at {}",
                 config.repo_path.display(),
-                mount.display()
+                mountpoint.display()
             );
 
             let gitfs = GitFs::new(config)?;
-            gitfs.mount(&mount)?;
+            gitfs.mount(&mountpoint)?;
 
             println!(
-                "Mounted successfully. Use 'gofs unmount --mount {}' to unmount.",
-                mount.display()
+                "Mounted successfully. Use 'gofs unmount {}' to unmount.",
+                mountpoint.display()
             );
 
-            // If not daemonized, block forever (FUSE session runs in background thread)
+            // If not daemonized, block until Ctrl+C for graceful unmount
             if !daemon {
+                let mount_path = Arc::new(mountpoint.clone());
+                let mp = mount_path.clone();
+                ctrlc::set_handler(move || {
+                    eprintln!("\nReceived Ctrl+C, unmounting {}...", mp.display());
+                    if let Err(e) = GitFs::unmount(&mp) {
+                        eprintln!("Warning: unmount failed: {}", e);
+                    }
+                    process::exit(0);
+                })
+                .expect("failed to set Ctrl+C handler");
+
                 loop {
                     std::thread::park();
                 }
             }
         }
 
-        Commands::Unmount { mount } => {
-            GitFs::unmount(&mount)?;
-            println!("Unmounted {}", mount.display());
+        Commands::Unmount { mountpoint } => {
+            GitFs::unmount(&mountpoint)?;
+            println!("Unmounted {}", mountpoint.display());
         }
 
-        Commands::Status { mount } => {
-            // The --mount arg here is the repo path for non-mounted status queries
-            let config = Config::new(mount.clone(), PathBuf::new());
+        Commands::Status { path } => {
+            let config = Config::new(path.clone(), PathBuf::new());
             let gitfs = GitFs::new(config)?;
             let status = gitfs.status();
 
@@ -238,8 +258,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         Commands::Fork { action } => match action {
-            ForkCommands::Create { mount, name, at } => {
-                let config = Config::new(mount, PathBuf::new());
+            ForkCommands::Create { name, repo, at } => {
+                let config = Config::new(repo, PathBuf::new());
                 let backend = GitBackend::open(&config)?;
                 let manager = ForkManager::new(backend);
 
@@ -253,8 +273,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 println!("Fork point: {}", info.fork_point);
             }
 
-            ForkCommands::List { mount } => {
-                let config = Config::new(mount, PathBuf::new());
+            ForkCommands::List { repo } => {
+                let config = Config::new(repo, PathBuf::new());
                 let backend = GitBackend::open(&config)?;
                 let manager = ForkManager::new(backend);
 
@@ -277,11 +297,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
 
             ForkCommands::Merge {
-                mount,
                 name,
+                repo,
                 strategy,
             } => {
-                let mut config = Config::new(mount, PathBuf::new());
+                let mut config = Config::new(repo, PathBuf::new());
                 config.fork.merge_strategy = parse_merge_strategy(&strategy)?;
 
                 let backend = GitBackend::open(&config)?;
@@ -301,8 +321,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            ForkCommands::Abandon { mount, name } => {
-                let config = Config::new(mount, PathBuf::new());
+            ForkCommands::Abandon { name, repo } => {
+                let config = Config::new(repo, PathBuf::new());
                 let backend = GitBackend::open(&config)?;
                 let manager = ForkManager::new(backend);
 
@@ -311,15 +331,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
         },
 
-        Commands::Checkpoint { mount, name } => {
-            let config = Config::new(mount, PathBuf::new());
+        Commands::Checkpoint { name, repo } => {
+            let config = Config::new(repo, PathBuf::new());
             let gitfs = GitFs::new(config)?;
             let commit_id = gitfs.checkpoint(&name)?;
             println!("Checkpoint '{}': {}", name, commit_id);
         }
 
-        Commands::Rollback { mount, commit } => {
-            let config = Config::new(mount, PathBuf::new());
+        Commands::Rollback { commit, repo } => {
+            let config = Config::new(repo, PathBuf::new());
             let gitfs = GitFs::new(config)?;
             gitfs.rollback(&commit)?;
             println!("Rolled back to {}", commit);
