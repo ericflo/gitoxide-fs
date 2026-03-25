@@ -22,28 +22,44 @@ use crate::error::{Error, Result};
 /// Represents a pending change to be committed.
 #[derive(Debug, Clone)]
 pub struct PendingChange {
+    /// Path of the changed file (relative to repo root).
     pub path: String,
+    /// What kind of change occurred.
     pub operation: ChangeOperation,
+    /// When the change was recorded.
     pub timestamp: std::time::SystemTime,
 }
 
 /// Types of filesystem changes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChangeOperation {
+    /// A new file was created.
     Create,
+    /// An existing file was modified.
     Modify,
+    /// A file was deleted.
     Delete,
-    Rename { from: String },
+    /// A file was renamed from another path.
+    Rename {
+        /// The original path before the rename.
+        from: String,
+    },
+    /// File permissions were changed.
     Chmod,
 }
 
 /// A commit in the git history.
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
+    /// The commit's hex OID.
     pub id: String,
+    /// The commit message.
     pub message: String,
+    /// The commit author name.
     pub author: String,
+    /// Unix timestamp of the commit.
     pub timestamp: i64,
+    /// Parent commit OIDs.
     pub parent_ids: Vec<String>,
 }
 
@@ -61,41 +77,62 @@ pub struct GitBackend {
 /// A directory entry.
 #[derive(Debug, Clone)]
 pub struct DirEntry {
+    /// Entry name (not the full path).
     pub name: String,
+    /// Whether this entry is a file, directory, or symlink.
     pub file_type: FileType,
+    /// Size in bytes (0 for directories).
     pub size: u64,
+    /// Unix permission mode bits.
     pub mode: u32,
 }
 
 /// File type enumeration.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileType {
+    /// A regular file.
     RegularFile,
+    /// A directory.
     Directory,
+    /// A symbolic link.
     Symlink,
 }
 
-/// File metadata.
+/// File metadata (stat information).
 #[derive(Debug, Clone)]
 pub struct FileStat {
+    /// Type of the file.
     pub file_type: FileType,
+    /// Size in bytes.
     pub size: u64,
+    /// Unix permission mode bits.
     pub mode: u32,
+    /// Last modification time.
     pub mtime: std::time::SystemTime,
+    /// Last status change time.
     pub ctime: std::time::SystemTime,
+    /// Last access time.
     pub atime: std::time::SystemTime,
+    /// Number of hard links.
     pub nlinks: u32,
+    /// Owner user ID.
     pub uid: u32,
+    /// Owner group ID.
     pub gid: u32,
+    /// Inode number.
     pub inode: u64,
 }
 
 /// Repository information.
 #[derive(Debug, Clone)]
 pub struct RepoInfo {
+    /// Whether the repository is bare (no working tree).
     pub is_bare: bool,
+    /// Current HEAD commit OID, if any.
     pub head_commit: Option<String>,
+    /// Number of branches in the repository.
     pub branch_count: usize,
+    /// Number of commits reachable from HEAD.
     pub commit_count: usize,
 }
 
@@ -200,8 +237,10 @@ impl GitBackend {
             if component == ".." {
                 return Err(Error::PermissionDenied("path traversal not allowed".into()));
             }
-            if component.as_bytes().len() > 255 {
-                return Err(Error::NameTooLong(format!("component exceeds 255 bytes")));
+            if component.len() > 255 {
+                return Err(Error::NameTooLong(
+                    "component exceeds 255 bytes".to_string(),
+                ));
             }
         }
 
@@ -354,7 +393,7 @@ impl GitBackend {
                 )));
             }
         }
-        fs::write(&full, content).map_err(|e| Error::Io(e))?;
+        fs::write(&full, content).map_err(Error::Io)?;
 
         // Auto-commit logic
         if self.config.commit.auto_commit {
@@ -685,7 +724,7 @@ impl GitBackend {
         let mut store = self.xattrs.write().unwrap();
         store
             .entry(path.to_string())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(name.to_string(), value.to_vec());
         Ok(())
     }
@@ -836,7 +875,7 @@ impl GitBackend {
                 ChangeOperation::Modify => "Modify",
                 ChangeOperation::Delete => "Delete",
                 ChangeOperation::Rename { from } => {
-                    let _ = write!(msg, "Rename {} -> {}\n", from, change.path);
+                    let _ = writeln!(msg, "Rename {} -> {}", from, change.path);
                     continue;
                 }
                 ChangeOperation::Chmod => "Chmod",

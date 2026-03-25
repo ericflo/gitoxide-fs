@@ -178,7 +178,7 @@ impl FuseHandler {
         FileAttr {
             ino,
             size: stat.size,
-            blocks: (stat.size + BLOCK_SIZE as u64 - 1) / BLOCK_SIZE as u64,
+            blocks: stat.size.div_ceil(BLOCK_SIZE as u64),
             atime: stat.atime,
             mtime: stat.mtime,
             ctime: stat.ctime,
@@ -1013,7 +1013,7 @@ impl Filesystem for FuseHandler {
 // GitFs — public API for mount/unmount and filesystem management
 // ===========================================================================
 
-/// The main FUSE filesystem struct.
+/// The main FUSE filesystem — wraps a [`GitBackend`] and exposes it as a mountable filesystem.
 pub struct GitFs {
     config: Config,
     backend: GitBackend,
@@ -1022,12 +1022,19 @@ pub struct GitFs {
 /// Status of a mounted filesystem.
 #[derive(Debug, Clone)]
 pub struct MountStatus {
+    /// The filesystem mount point.
     pub mount_point: PathBuf,
+    /// Path to the backing git repository.
     pub repo_path: PathBuf,
+    /// Current git branch name.
     pub branch: String,
+    /// Number of uncommitted changes.
     pub pending_changes: usize,
+    /// Total commits in the repository.
     pub total_commits: usize,
+    /// Time since the filesystem was mounted.
     pub uptime: Duration,
+    /// Whether the filesystem is mounted read-only.
     pub read_only: bool,
 }
 
@@ -1045,11 +1052,7 @@ impl GitFs {
     ///
     /// Consumes self — the GitBackend is moved into the FUSE handler.
     pub fn mount(self, mount_point: &Path) -> Result<()> {
-        let repo_path = self
-            .config
-            .repo_path
-            .canonicalize()
-            .map_err(|e| Error::Io(e))?;
+        let repo_path = self.config.repo_path.canonicalize().map_err(Error::Io)?;
 
         // Prevent double-mounting the same repo
         {
@@ -1086,11 +1089,7 @@ impl GitFs {
 
     /// Mount the filesystem with specific FUSE options.
     pub fn mount_with_options(self, mount_point: &Path, extra_options: &[&str]) -> Result<()> {
-        let repo_path = self
-            .config
-            .repo_path
-            .canonicalize()
-            .map_err(|e| Error::Io(e))?;
+        let repo_path = self.config.repo_path.canonicalize().map_err(Error::Io)?;
 
         {
             let repos = mounted_repos().lock().unwrap();
@@ -1136,7 +1135,7 @@ impl GitFs {
             .or_else(|_| {
                 // Fallback to umount if fusermount not available
                 std::process::Command::new("umount")
-                    .arg(&mount_point.to_string_lossy().to_string())
+                    .arg(mount_point.to_string_lossy().to_string())
                     .output()
             })
             .map_err(|e| Error::Fuse(format!("unmount failed: {}", e)))?;

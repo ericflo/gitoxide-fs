@@ -106,7 +106,7 @@ pub struct PerformanceConfig {
 impl Config {
     /// Load configuration from a TOML file.
     pub fn from_file(path: &std::path::Path) -> crate::Result<Self> {
-        let contents = std::fs::read_to_string(path).map_err(|e| crate::Error::Io(e))?;
+        let contents = std::fs::read_to_string(path).map_err(crate::Error::Io)?;
         let config: Self =
             toml::from_str(&contents).map_err(|e| crate::Error::Config(e.to_string()))?;
         Ok(config)
