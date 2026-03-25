@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! gitoxide-fs: A FUSE filesystem backed by git.
 //!
 //! Every file operation becomes a git commit. Designed as a core primitive
