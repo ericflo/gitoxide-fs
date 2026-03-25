@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, RwLock};
 use std::time::SystemTime;
@@ -556,6 +558,9 @@ impl GitBackend {
             mtime: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
             ctime,
             atime: metadata.accessed().unwrap_or(SystemTime::UNIX_EPOCH),
+            #[cfg(unix)]
+            nlinks: metadata.nlink() as u32,
+            #[cfg(not(unix))]
             nlinks: 1,
             uid: 0,
             gid: 0,
@@ -569,6 +574,12 @@ impl GitBackend {
     pub fn create_symlink(&self, link_path: &str, target: &str) -> Result<()> {
         self.check_writable()?;
         self.validate_file_path(link_path)?;
+        // Reject absolute symlink targets — they'd point outside the repo
+        if target.starts_with('/') {
+            return Err(Error::InvalidArgument(
+                "absolute symlink targets are not allowed".into(),
+            ));
+        }
         let full = self.abs_path(link_path);
         if let Some(parent) = full.parent() {
             fs::create_dir_all(parent)?;
@@ -658,6 +669,11 @@ impl GitBackend {
 
     /// Get extended attribute for a path.
     pub fn get_xattr(&self, path: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        // Verify the file/dir exists
+        let full = self.abs_path(path);
+        if !full.exists() {
+            return Err(Error::NotFound(path.to_string()));
+        }
         let store = self.xattrs.read().unwrap();
         Ok(store
             .get(path)
@@ -667,6 +683,11 @@ impl GitBackend {
 
     /// Set extended attribute for a path.
     pub fn set_xattr(&self, path: &str, name: &str, value: &[u8]) -> Result<()> {
+        // Verify the file/dir exists
+        let full = self.abs_path(path);
+        if !full.exists() {
+            return Err(Error::NotFound(path.to_string()));
+        }
         let mut store = self.xattrs.write().unwrap();
         store
             .entry(path.to_string())
@@ -677,6 +698,11 @@ impl GitBackend {
 
     /// List extended attributes for a path.
     pub fn list_xattr(&self, path: &str) -> Result<Vec<String>> {
+        // Verify the file/dir exists
+        let full = self.abs_path(path);
+        if !full.exists() {
+            return Err(Error::NotFound(path.to_string()));
+        }
         let store = self.xattrs.read().unwrap();
         Ok(store
             .get(path)
@@ -686,9 +712,18 @@ impl GitBackend {
 
     /// Remove an extended attribute.
     pub fn remove_xattr(&self, path: &str, name: &str) -> Result<()> {
+        // Verify the file/dir exists
+        let full = self.abs_path(path);
+        if !full.exists() {
+            return Err(Error::NotFound(path.to_string()));
+        }
         let mut store = self.xattrs.write().unwrap();
         if let Some(attrs) = store.get_mut(path) {
-            attrs.remove(name);
+            if attrs.remove(name).is_none() {
+                return Err(Error::NotFound(format!("xattr '{}' not found on '{}'", name, path)));
+            }
+        } else {
+            return Err(Error::NotFound(format!("xattr '{}' not found on '{}'", name, path)));
         }
         Ok(())
     }
