@@ -3,10 +3,12 @@
 //! Implements the fork/merge paradigm for parallel agent work.
 //! Each fork creates a new git branch, and merging reconciles changes.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 use crate::config::MergeStrategy;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::git::GitBackend;
 
 /// Information about an active fork.
@@ -64,68 +66,596 @@ pub enum ConflictType {
     DirectoryFile,
 }
 
+/// Internal metadata tracked for each fork.
+#[derive(Debug, Clone)]
+struct ForkMetadata {
+    /// The branch name for this fork.
+    branch: String,
+    /// The parent branch this fork was created from.
+    parent_branch: String,
+    /// The commit OID at the point of fork creation.
+    fork_point: String,
+    /// Whether this fork has been merged back.
+    merged: bool,
+}
+
 /// Manages fork lifecycle — creation, listing, merging, deletion.
 pub struct ForkManager {
-    _backend: GitBackend,
+    backend: GitBackend,
+    forks: RwLock<HashMap<String, ForkMetadata>>,
 }
 
 impl ForkManager {
     /// Create a new ForkManager.
-    pub fn new(_backend: GitBackend) -> Self {
-        todo!("ForkManager::new not implemented")
+    pub fn new(backend: GitBackend) -> Self {
+        Self {
+            backend,
+            forks: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Access the underlying git backend (e.g. to read/write files on branches).
+    pub fn backend(&self) -> &GitBackend {
+        &self.backend
     }
 
     /// Create a new fork from the current branch.
-    pub fn create_fork(&self, _name: &str) -> Result<ForkInfo> {
-        todo!("ForkManager::create_fork not implemented")
+    pub fn create_fork(&self, name: &str) -> Result<ForkInfo> {
+        let parent_branch = self.backend.current_branch()?;
+        let fork_point = self
+            .backend
+            .head_commit_hex()
+            .ok_or_else(|| Error::Fork("no commits yet, cannot fork".into()))?;
+
+        // Check for duplicate fork names in our tracking.
+        {
+            let forks = self.forks.read().unwrap();
+            if forks.contains_key(name) {
+                return Err(Error::AlreadyExists(format!("fork '{}'", name)));
+            }
+        }
+
+        // Create the git branch at the current HEAD.
+        self.backend.create_branch(name)?;
+
+        let metadata = ForkMetadata {
+            branch: name.to_string(),
+            parent_branch: parent_branch.clone(),
+            fork_point: fork_point.clone(),
+            merged: false,
+        };
+
+        {
+            let mut forks = self.forks.write().unwrap();
+            forks.insert(name.to_string(), metadata);
+        }
+
+        Ok(ForkInfo {
+            id: name.to_string(),
+            branch: name.to_string(),
+            parent_branch,
+            fork_point,
+            mount_point: None,
+            commits_ahead: 0,
+            merged: false,
+        })
     }
 
     /// Create a fork from a specific commit or tag.
-    pub fn create_fork_at(&self, _name: &str, _commit_id: &str) -> Result<ForkInfo> {
-        todo!("ForkManager::create_fork_at not implemented")
+    pub fn create_fork_at(&self, name: &str, commit_id: &str) -> Result<ForkInfo> {
+        let parent_branch = self.backend.current_branch()?;
+
+        {
+            let forks = self.forks.read().unwrap();
+            if forks.contains_key(name) {
+                return Err(Error::AlreadyExists(format!("fork '{}'", name)));
+            }
+        }
+
+        self.backend.create_branch_at(name, commit_id)?;
+
+        let metadata = ForkMetadata {
+            branch: name.to_string(),
+            parent_branch: parent_branch.clone(),
+            fork_point: commit_id.to_string(),
+            merged: false,
+        };
+
+        {
+            let mut forks = self.forks.write().unwrap();
+            forks.insert(name.to_string(), metadata);
+        }
+
+        Ok(ForkInfo {
+            id: name.to_string(),
+            branch: name.to_string(),
+            parent_branch,
+            fork_point: commit_id.to_string(),
+            mount_point: None,
+            commits_ahead: 0,
+            merged: false,
+        })
     }
 
     /// Create a nested fork (fork of a fork).
-    pub fn create_nested_fork(&self, _parent_fork: &str, _name: &str) -> Result<ForkInfo> {
-        todo!("ForkManager::create_nested_fork not implemented")
+    pub fn create_nested_fork(&self, parent_fork: &str, name: &str) -> Result<ForkInfo> {
+        // Find the parent fork's branch and its current commit.
+        let parent_commit = {
+            let forks = self.forks.read().unwrap();
+            let parent_meta = forks
+                .get(parent_fork)
+                .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", parent_fork)))?;
+            if parent_meta.merged {
+                return Err(Error::Fork(format!(
+                    "cannot fork from already-merged fork '{}'",
+                    parent_fork
+                )));
+            }
+            // The parent fork's branch tip is the fork point for the nested fork.
+            self.backend.branch_commit_oid(&parent_meta.branch)?
+        };
+
+        {
+            let forks = self.forks.read().unwrap();
+            if forks.contains_key(name) {
+                return Err(Error::AlreadyExists(format!("fork '{}'", name)));
+            }
+        }
+
+        self.backend.create_branch_at(name, &parent_commit)?;
+
+        let metadata = ForkMetadata {
+            branch: name.to_string(),
+            parent_branch: parent_fork.to_string(),
+            fork_point: parent_commit.clone(),
+            merged: false,
+        };
+
+        {
+            let mut forks = self.forks.write().unwrap();
+            forks.insert(name.to_string(), metadata);
+        }
+
+        Ok(ForkInfo {
+            id: name.to_string(),
+            branch: name.to_string(),
+            parent_branch: parent_fork.to_string(),
+            fork_point: parent_commit,
+            mount_point: None,
+            commits_ahead: 0,
+            merged: false,
+        })
     }
 
     /// List all active forks.
     pub fn list_forks(&self) -> Result<Vec<ForkInfo>> {
-        todo!("ForkManager::list_forks not implemented")
+        let forks = self.forks.read().unwrap();
+        let mut result = Vec::new();
+        for (name, meta) in forks.iter() {
+            let commits_ahead = self.count_commits_ahead(&meta.branch, &meta.fork_point);
+            result.push(ForkInfo {
+                id: name.clone(),
+                branch: meta.branch.clone(),
+                parent_branch: meta.parent_branch.clone(),
+                fork_point: meta.fork_point.clone(),
+                mount_point: None,
+                commits_ahead,
+                merged: meta.merged,
+            });
+        }
+        result.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(result)
     }
 
     /// Get info about a specific fork.
-    pub fn get_fork(&self, _name: &str) -> Result<ForkInfo> {
-        todo!("ForkManager::get_fork not implemented")
+    pub fn get_fork(&self, name: &str) -> Result<ForkInfo> {
+        let forks = self.forks.read().unwrap();
+        let meta = forks
+            .get(name)
+            .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
+        let commits_ahead = self.count_commits_ahead(&meta.branch, &meta.fork_point);
+        Ok(ForkInfo {
+            id: name.to_string(),
+            branch: meta.branch.clone(),
+            parent_branch: meta.parent_branch.clone(),
+            fork_point: meta.fork_point.clone(),
+            mount_point: None,
+            commits_ahead,
+            merged: meta.merged,
+        })
     }
 
-    /// Merge a fork back into its parent branch.
-    pub fn merge_fork(&self, _name: &str) -> Result<MergeResult> {
-        todo!("ForkManager::merge_fork not implemented")
+    /// Merge a fork back into its parent branch using the default three-way strategy.
+    pub fn merge_fork(&self, name: &str) -> Result<MergeResult> {
+        self.merge_fork_with_strategy(name, MergeStrategy::ThreeWay)
     }
 
     /// Merge with a specific strategy.
     pub fn merge_fork_with_strategy(
         &self,
-        _name: &str,
-        _strategy: MergeStrategy,
+        name: &str,
+        strategy: MergeStrategy,
     ) -> Result<MergeResult> {
-        todo!("ForkManager::merge_fork_with_strategy not implemented")
+        // Validate the fork exists and isn't already merged.
+        let (parent_branch, fork_branch, fork_point) = {
+            let forks = self.forks.read().unwrap();
+            let meta = forks
+                .get(name)
+                .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
+            if meta.merged {
+                return Err(Error::Fork(format!(
+                    "fork '{}' has already been merged",
+                    name
+                )));
+            }
+            (
+                meta.parent_branch.clone(),
+                meta.branch.clone(),
+                meta.fork_point.clone(),
+            )
+        };
+
+        // Get the commit OIDs for parent branch tip and fork branch tip.
+        let parent_commit = self.resolve_branch_commit(&parent_branch)?;
+        let fork_commit = self.backend.branch_commit_oid(&fork_branch)?;
+
+        // Get tree snapshots at the base (fork point), parent tip, and fork tip.
+        let base_tree = self.backend.tree_at_commit(&fork_point)?;
+        let parent_tree = self.backend.tree_at_commit(&parent_commit)?;
+        let fork_tree = self.backend.tree_at_commit(&fork_commit)?;
+
+        // Perform three-way merge to detect conflicts and compute result.
+        let (conflicts, merged_files, files_changed) =
+            self.three_way_merge(&base_tree, &parent_tree, &fork_tree, &strategy);
+
+        let had_conflicts = !conflicts.is_empty();
+
+        // If strategy is Manual and there are conflicts, report them without committing.
+        if had_conflicts && strategy == MergeStrategy::ThreeWay {
+            // For ThreeWay with conflicts, report the conflicts.
+            // Mark as merged so it can't be merged again.
+            {
+                let mut forks = self.forks.write().unwrap();
+                if let Some(meta) = forks.get_mut(name) {
+                    meta.merged = true;
+                }
+            }
+            return Ok(MergeResult {
+                commit_id: parent_commit.clone(),
+                had_conflicts: true,
+                conflicts,
+                files_changed,
+            });
+        }
+
+        // Apply the merged files to the working tree.
+        // First, switch to the parent branch.
+        self.backend.checkout_branch(&parent_branch)?;
+
+        // Write all merged files to the working tree.
+        for (path, content) in &merged_files {
+            // Ensure parent directories exist.
+            let abs_path = self.backend.repo_path().join(path);
+            if let Some(parent) = abs_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&abs_path, content)?;
+        }
+
+        // Remove files that were in the parent but are deleted in the merge result.
+        for path in parent_tree.keys() {
+            if !merged_files.contains_key(path) {
+                let abs_path = self.backend.repo_path().join(path);
+                if abs_path.exists() {
+                    let _ = std::fs::remove_file(&abs_path);
+                }
+            }
+        }
+
+        // Create merge commit.
+        let commit_msg = format!("Merge fork '{}' into {}", name, parent_branch);
+        let commit_id =
+            self.backend
+                .create_merge_commit(&parent_commit, &fork_commit, &commit_msg)?;
+
+        // Mark as merged.
+        {
+            let mut forks = self.forks.write().unwrap();
+            if let Some(meta) = forks.get_mut(name) {
+                meta.merged = true;
+            }
+        }
+
+        Ok(MergeResult {
+            commit_id,
+            had_conflicts: false,
+            conflicts: Vec::new(),
+            files_changed,
+        })
     }
 
     /// Abandon a fork (delete the branch).
-    pub fn abandon_fork(&self, _name: &str) -> Result<()> {
-        todo!("ForkManager::abandon_fork not implemented")
+    pub fn abandon_fork(&self, name: &str) -> Result<()> {
+        {
+            let forks = self.forks.read().unwrap();
+            if !forks.contains_key(name) {
+                return Err(Error::NotFound(format!("fork '{}' not found", name)));
+            }
+        }
+
+        // Delete the git branch.
+        let branch_name = {
+            let forks = self.forks.read().unwrap();
+            forks[name].branch.clone()
+        };
+        self.backend.delete_branch(&branch_name)?;
+
+        // Remove from tracking.
+        {
+            let mut forks = self.forks.write().unwrap();
+            forks.remove(name);
+        }
+
+        Ok(())
     }
 
     /// Check if a fork can be merged cleanly (dry run).
-    pub fn can_merge(&self, _name: &str) -> Result<bool> {
-        todo!("ForkManager::can_merge not implemented")
+    pub fn can_merge(&self, name: &str) -> Result<bool> {
+        let (parent_branch, fork_branch, fork_point) = {
+            let forks = self.forks.read().unwrap();
+            let meta = forks
+                .get(name)
+                .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
+            if meta.merged {
+                return Err(Error::Fork(format!(
+                    "fork '{}' has already been merged",
+                    name
+                )));
+            }
+            (
+                meta.parent_branch.clone(),
+                meta.branch.clone(),
+                meta.fork_point.clone(),
+            )
+        };
+
+        let parent_commit = self.resolve_branch_commit(&parent_branch)?;
+        let fork_commit = self.backend.branch_commit_oid(&fork_branch)?;
+
+        let base_tree = self.backend.tree_at_commit(&fork_point)?;
+        let parent_tree = self.backend.tree_at_commit(&parent_commit)?;
+        let fork_tree = self.backend.tree_at_commit(&fork_commit)?;
+
+        let (conflicts, _, _) =
+            self.three_way_merge(&base_tree, &parent_tree, &fork_tree, &MergeStrategy::ThreeWay);
+        Ok(conflicts.is_empty())
     }
 
     /// Get the diff between a fork and its parent.
-    pub fn fork_diff(&self, _name: &str) -> Result<String> {
-        todo!("ForkManager::fork_diff not implemented")
+    pub fn fork_diff(&self, name: &str) -> Result<String> {
+        let (parent_branch, fork_branch) = {
+            let forks = self.forks.read().unwrap();
+            let meta = forks
+                .get(name)
+                .ok_or_else(|| Error::NotFound(format!("fork '{}' not found", name)))?;
+            (meta.parent_branch.clone(), meta.branch.clone())
+        };
+
+        let parent_commit = self.resolve_branch_commit(&parent_branch)?;
+        let fork_commit = self.backend.branch_commit_oid(&fork_branch)?;
+
+        // If both branches point to the same commit, there's no diff.
+        if parent_commit == fork_commit {
+            return Ok(String::new());
+        }
+
+        self.backend.diff(&parent_commit, &fork_commit)
+    }
+
+    // ======================== Internal helpers ==============================
+
+    /// Resolve a branch name to its commit OID. Handles both tracked forks
+    /// (which might be parent forks) and regular branches.
+    fn resolve_branch_commit(&self, branch: &str) -> Result<String> {
+        // First check if this is a tracked fork — use its branch name.
+        let forks = self.forks.read().unwrap();
+        if let Some(meta) = forks.get(branch) {
+            return self.backend.branch_commit_oid(&meta.branch);
+        }
+        drop(forks);
+        // Otherwise resolve directly as a branch name.
+        self.backend.branch_commit_oid(branch)
+    }
+
+    /// Count how many commits a branch is ahead of a given fork point.
+    fn count_commits_ahead(&self, branch: &str, fork_point: &str) -> usize {
+        let tip = match self.backend.branch_commit_oid(branch) {
+            Ok(hex) => hex,
+            Err(_) => return 0,
+        };
+        if tip == fork_point {
+            return 0;
+        }
+        // Walk backwards from tip counting commits until we hit the fork point.
+        // For simplicity, use the log and count entries.
+        let logs = match self.backend.log(Some(100)) {
+            Ok(l) => l,
+            Err(_) => return 0,
+        };
+        let mut count = 0;
+        for entry in &logs {
+            if entry.id == *fork_point {
+                break;
+            }
+            count += 1;
+        }
+        count
+    }
+
+    /// Perform a three-way merge between base, ours (parent), and theirs (fork).
+    ///
+    /// Returns: (conflicts, merged_files, files_changed_count)
+    fn three_way_merge(
+        &self,
+        base: &HashMap<String, Vec<u8>>,
+        ours: &HashMap<String, Vec<u8>>,
+        theirs: &HashMap<String, Vec<u8>>,
+        strategy: &MergeStrategy,
+    ) -> (Vec<MergeConflict>, HashMap<String, Vec<u8>>, usize) {
+        let mut conflicts = Vec::new();
+        let mut merged = HashMap::new();
+        let mut files_changed: usize = 0;
+
+        // Collect all paths from all three trees.
+        let mut all_paths: Vec<String> = Vec::new();
+        for key in base.keys().chain(ours.keys()).chain(theirs.keys()) {
+            if !all_paths.contains(key) {
+                all_paths.push(key.clone());
+            }
+        }
+        all_paths.sort();
+
+        for path in &all_paths {
+            let in_base = base.get(path);
+            let in_ours = ours.get(path);
+            let in_theirs = theirs.get(path);
+
+            match (in_base, in_ours, in_theirs) {
+                // File unchanged in all three — keep as-is.
+                (Some(b), Some(o), Some(t)) if b == o && b == t => {
+                    merged.insert(path.clone(), o.clone());
+                }
+                // File modified only in ours — take ours.
+                (Some(b), Some(o), Some(t)) if b == t && b != o => {
+                    merged.insert(path.clone(), o.clone());
+                    files_changed += 1;
+                }
+                // File modified only in theirs — take theirs.
+                (Some(b), Some(o), Some(t)) if b == o && b != t => {
+                    merged.insert(path.clone(), t.clone());
+                    files_changed += 1;
+                }
+                // Both modified differently — conflict!
+                (Some(b), Some(o), Some(t)) => {
+                    files_changed += 1;
+                    match strategy {
+                        MergeStrategy::Ours => {
+                            merged.insert(path.clone(), o.clone());
+                        }
+                        MergeStrategy::Theirs => {
+                            merged.insert(path.clone(), t.clone());
+                        }
+                        _ => {
+                            // ThreeWay / Rebase: report conflict, keep ours as default.
+                            merged.insert(path.clone(), o.clone());
+                            conflicts.push(MergeConflict {
+                                path: path.clone(),
+                                conflict_type: ConflictType::BothModified,
+                                ours: Some(o.clone()),
+                                theirs: Some(t.clone()),
+                                base: Some(b.clone()),
+                            });
+                        }
+                    }
+                }
+                // File added only in ours (not in base or theirs).
+                (None, Some(o), None) => {
+                    merged.insert(path.clone(), o.clone());
+                    files_changed += 1;
+                }
+                // File added only in theirs (not in base or ours).
+                (None, None, Some(t)) => {
+                    merged.insert(path.clone(), t.clone());
+                    files_changed += 1;
+                }
+                // File added in both — conflict if different content.
+                (None, Some(o), Some(t)) => {
+                    files_changed += 1;
+                    if o == t {
+                        merged.insert(path.clone(), o.clone());
+                    } else {
+                        match strategy {
+                            MergeStrategy::Ours => {
+                                merged.insert(path.clone(), o.clone());
+                            }
+                            MergeStrategy::Theirs => {
+                                merged.insert(path.clone(), t.clone());
+                            }
+                            _ => {
+                                merged.insert(path.clone(), o.clone());
+                                conflicts.push(MergeConflict {
+                                    path: path.clone(),
+                                    conflict_type: ConflictType::BothAdded,
+                                    ours: Some(o.clone()),
+                                    theirs: Some(t.clone()),
+                                    base: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                // File deleted only in ours (still in base and theirs).
+                (Some(_b), None, Some(t)) => {
+                    files_changed += 1;
+                    if _b == t {
+                        // Ours deleted, theirs unchanged — honor deletion.
+                        // Don't include in merged.
+                    } else {
+                        // Ours deleted, theirs modified — conflict!
+                        match strategy {
+                            MergeStrategy::Ours => {
+                                // Ours deleted — don't include.
+                            }
+                            MergeStrategy::Theirs => {
+                                merged.insert(path.clone(), t.clone());
+                            }
+                            _ => {
+                                conflicts.push(MergeConflict {
+                                    path: path.clone(),
+                                    conflict_type: ConflictType::ModifyDelete,
+                                    ours: None,
+                                    theirs: Some(t.clone()),
+                                    base: Some(_b.clone()),
+                                });
+                            }
+                        }
+                    }
+                }
+                // File deleted only in theirs (still in base and ours).
+                (Some(_b), Some(o), None) => {
+                    files_changed += 1;
+                    if _b == o {
+                        // Theirs deleted, ours unchanged — honor deletion.
+                    } else {
+                        // Theirs deleted, ours modified — conflict!
+                        match strategy {
+                            MergeStrategy::Ours => {
+                                merged.insert(path.clone(), o.clone());
+                            }
+                            MergeStrategy::Theirs => {
+                                // Theirs deleted — don't include.
+                            }
+                            _ => {
+                                conflicts.push(MergeConflict {
+                                    path: path.clone(),
+                                    conflict_type: ConflictType::ModifyDelete,
+                                    ours: Some(o.clone()),
+                                    theirs: None,
+                                    base: Some(_b.clone()),
+                                });
+                            }
+                        }
+                    }
+                }
+                // File deleted in both — fine, remove it.
+                (Some(_), None, None) => {
+                    files_changed += 1;
+                }
+                // File exists nowhere — shouldn't happen.
+                (None, None, None) => {}
+            }
+        }
+
+        (conflicts, merged, files_changed)
     }
 }

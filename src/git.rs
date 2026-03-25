@@ -1101,6 +1101,97 @@ impl GitBackend {
         Ok(())
     }
 
+    /// Create a new branch at a specific commit OID.
+    pub fn create_branch_at(&self, name: &str, commit_hex: &str) -> Result<()> {
+        let oid = ObjectId::from_hex(commit_hex.as_bytes())
+            .map_err(|e| Error::Git(format!("invalid commit ID '{}': {}", commit_hex, e)))?;
+        let ref_path = self.git_dir().join("refs/heads").join(name);
+        if ref_path.exists() {
+            return Err(Error::AlreadyExists(format!("branch '{}'", name)));
+        }
+        if let Some(parent) = ref_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&ref_path, format!("{}\n", oid))?;
+        Ok(())
+    }
+
+    /// Delete a branch ref file.
+    pub fn delete_branch(&self, name: &str) -> Result<()> {
+        let ref_path = self.git_dir().join("refs/heads").join(name);
+        if !ref_path.exists() {
+            return Err(Error::NotFound(format!("branch '{}' not found", name)));
+        }
+        fs::remove_file(&ref_path)?;
+        Ok(())
+    }
+
+    /// Get the commit OID hex string that a branch points to.
+    pub fn branch_commit_oid(&self, name: &str) -> Result<String> {
+        let ref_path = self.git_dir().join("refs/heads").join(name);
+        if !ref_path.exists() {
+            return Err(Error::NotFound(format!("branch '{}' not found", name)));
+        }
+        let hex = fs::read_to_string(&ref_path)?;
+        Ok(hex.trim().to_string())
+    }
+
+    /// Update a branch ref to point at a new commit.
+    pub fn update_branch(&self, name: &str, commit_hex: &str) -> Result<()> {
+        let ref_path = self.git_dir().join("refs/heads").join(name);
+        if !ref_path.exists() {
+            return Err(Error::NotFound(format!("branch '{}' not found", name)));
+        }
+        fs::write(&ref_path, format!("{}\n", commit_hex))?;
+        Ok(())
+    }
+
+    /// Get the current HEAD commit hex, if any.
+    pub fn head_commit_hex(&self) -> Option<String> {
+        self.head_commit_oid().map(|oid| oid.to_hex().to_string())
+    }
+
+    /// Get the repo path.
+    pub fn repo_path(&self) -> &Path {
+        &self.repo_path
+    }
+
+    /// Get the tree snapshot (path -> blob OID) at a given commit.
+    pub fn tree_at_commit(&self, commit_hex: &str) -> Result<HashMap<String, Vec<u8>>> {
+        let oid = ObjectId::from_hex(commit_hex.as_bytes())
+            .map_err(|e| Error::Git(format!("invalid commit ID '{}': {}", commit_hex, e)))?;
+        let repo = self.repo.lock().unwrap();
+        let tree_id = self.get_commit_tree_id_inner(&repo, oid)?;
+        let flat = self.flatten_tree_inner(&repo, tree_id, "")?;
+        let mut result = HashMap::new();
+        for (path, blob_oid) in flat {
+            let obj = repo
+                .find_object(blob_oid)
+                .map_err(|e| Error::Git(e.to_string()))?;
+            result.insert(path, obj.data.to_vec());
+        }
+        Ok(result)
+    }
+
+    /// Create a merge commit with two parents and a given tree.
+    pub fn create_merge_commit(
+        &self,
+        parent1_hex: &str,
+        parent2_hex: &str,
+        message: &str,
+    ) -> Result<String> {
+        let p1 = ObjectId::from_hex(parent1_hex.as_bytes())
+            .map_err(|e| Error::Git(format!("invalid parent1: {}", e)))?;
+        let p2 = ObjectId::from_hex(parent2_hex.as_bytes())
+            .map_err(|e| Error::Git(format!("invalid parent2: {}", e)))?;
+        let repo = self.repo.lock().unwrap();
+        let tree_id = self.build_tree_from_workdir(&repo, "")?;
+        let commit_id = self.write_commit_inner(&repo, tree_id, &[p1, p2], message)?;
+        drop(repo);
+        self.update_head_to(commit_id)?;
+        Ok(commit_id.to_hex().to_string())
+    }
+
     // ==================== Read at commit =================================
 
     /// Read a file at a specific commit.
