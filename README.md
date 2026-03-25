@@ -1,5 +1,7 @@
 # gitoxide-fs
 
+[![CI](https://github.com/ericflo/gitoxide-fs/actions/workflows/ci.yml/badge.svg)](https://github.com/ericflo/gitoxide-fs/actions/workflows/ci.yml)
+
 A blazing-fast FUSE filesystem backed by git, written in Rust. Every file edit becomes a git commit transparently.
 
 ## Why?
@@ -29,6 +31,103 @@ After the agent finishes, you have a full `git log` of its entire thought proces
 - **Read-only mode**: Mount existing repos for safe browsing
 - **Configurable**: TOML config files, CLI flags, environment variable overrides
 
+## Installation
+
+### Prerequisites
+
+gitoxide-fs requires FUSE 3 support on your system:
+
+- **Debian/Ubuntu**: `sudo apt-get install libfuse3-dev fuse3`
+- **Fedora/RHEL**: `sudo dnf install fuse3-devel fuse3`
+- **Arch Linux**: `sudo pacman -S fuse3`
+- **macOS**: Install [macFUSE](https://osxfuse.github.io/), then `brew install libfuse`
+
+### Build from source
+
+```bash
+git clone https://github.com/ericflo/gitoxide-fs.git
+cd gitoxide-fs
+cargo build --release
+
+# The binary is at target/release/gitoxide-fs
+# Optionally install it system-wide:
+cargo install --path .
+```
+
+### From crates.io (coming soon)
+
+```bash
+cargo install gitoxide-fs
+```
+
+## Quick Start
+
+```bash
+# 1. Create a new git repo (or use an existing one)
+mkdir my-project && cd my-project && git init
+echo "# My Project" > README.md && git add . && git commit -m "init"
+
+# 2. Create a mount point
+mkdir /tmp/workspace
+
+# 3. Mount the repo
+gitoxide-fs mount --repo ./my-project --mount /tmp/workspace
+
+# 4. Work normally — every change becomes a git commit
+echo "fn main() {}" > /tmp/workspace/main.rs
+mkdir /tmp/workspace/src
+echo "pub fn hello() -> &'static str { \"world\" }" > /tmp/workspace/src/lib.rs
+
+# 5. Check the git log — commits were created automatically
+cd my-project && git log --oneline
+# abc1234 Auto-commit: add src/lib.rs
+# def5678 Auto-commit: add main.rs
+# 9876543 init
+
+# 6. Unmount when done
+gitoxide-fs unmount --mount /tmp/workspace
+```
+
+## Agentic Usage
+
+The real power of gitoxide-fs is enabling multiple agents to work in parallel with full isolation and merge capabilities:
+
+```bash
+# Mount the repo
+gitoxide-fs mount --repo ./project --mount /mnt/work
+
+# Agent 1: fork, work, merge
+gitoxide-fs fork create --mount /mnt/work --name agent-1-task
+# Agent 1 writes files to /mnt/work (now on the fork branch)...
+# When done:
+gitoxide-fs fork merge --mount /mnt/work --name agent-1-task
+
+# Agent 2: fork from the same point, work in parallel
+gitoxide-fs fork create --mount /mnt/work --name agent-2-task
+# Agent 2 works independently...
+gitoxide-fs fork merge --mount /mnt/work --name agent-2-task --strategy three-way
+
+# List all forks
+gitoxide-fs fork list --mount /mnt/work
+
+# Abandon a fork that didn't work out
+gitoxide-fs fork abandon --mount /mnt/work --name failed-experiment
+```
+
+Each fork is a git branch. Merging uses configurable strategies (`three-way`, `ours`, `theirs`, `rebase`). Conflicts are detected and reported.
+
+### Checkpoints and Rollback
+
+Agents can save named checkpoints and rollback if something goes wrong:
+
+```bash
+# Save a checkpoint before risky work
+gitoxide-fs checkpoint --mount /mnt/work --name before-refactor
+
+# If things go wrong, rollback
+gitoxide-fs rollback --mount /mnt/work --commit <commit-id>
+```
+
 ## The Fork/Merge Paradigm
 
 gitoxide-fs treats git branches as lightweight "forks" that agents can create, work on, and merge back:
@@ -39,17 +138,6 @@ main ─────●────────●────────●─
             ● agent-1-fork ● ──── (agent 1's work, auto-merged)
              \
               ● agent-2-fork ● ── (agent 2's parallel work)
-```
-
-```bash
-# Agent 1 creates a fork (new branch)
-gitoxide-fs fork create --mount /mnt/project --name agent-1-task
-
-# Agent 1 works on its fork...
-# (all file operations go to the fork's branch)
-
-# Merge back when done
-gitoxide-fs fork merge --mount /mnt/project --name agent-1-task
 ```
 
 Conflicts are detected and can be resolved with configurable strategies (`three-way`, `ours`, `theirs`, `rebase`).
@@ -136,19 +224,34 @@ large_file_threshold = 10485760  # 10 MB
 
 ## Development
 
-This project follows strict TDD — the test suite was written first, covering 200+ test cases across:
+All 300 tests pass across 12 test suites covering:
 
-- Core filesystem operations (files, dirs, symlinks, permissions)
+- Core filesystem operations (files, dirs, symlinks, permissions, xattrs)
 - Git integration (commits, history, diffs, .gitignore)
 - Fork/merge paradigm (creation, merging, conflicts, strategies)
 - Edge cases (crash recovery, concurrent access, stress tests)
+- Error recovery (corrupted state, permission errors, disk full)
 - Agentic workflows (project creation, iterative editing, parallel forks)
 - Configuration (parsing, defaults, validation)
 - CLI (argument parsing, help text, error handling)
+- Links and symlinks
+- Concurrency (parallel reads/writes, lock contention)
 
 ```bash
-# Run tests (all will fail until implementation is complete)
+# Run all tests
 cargo test
+
+# Run unit tests only
+cargo test --lib
+
+# Run a specific test suite
+cargo test --test test_fork_merge
+
+# Lint (blocking in CI)
+cargo clippy -- -D warnings
+
+# Format check
+cargo fmt --check
 
 # Run benchmarks
 cargo bench
