@@ -432,9 +432,50 @@ fn gitfs_rollback_restores_state() {
     let config = fix.config();
     let gitfs = GitFs::new(config).expect("create gitfs");
 
-    // Would need to write files, checkpoint, write more, then rollback
-    let commit_id = gitfs.checkpoint("before-changes").expect("checkpoint");
-    gitfs.rollback(&commit_id).expect("rollback");
+    // Write a file and checkpoint
+    gitfs
+        .backend()
+        .write_file("keep.txt", b"should survive rollback")
+        .expect("write keep");
+    let checkpoint = gitfs.checkpoint("stable").expect("checkpoint");
+
+    // Write more files after checkpoint
+    gitfs
+        .backend()
+        .write_file("remove-me.txt", b"should be removed by rollback")
+        .expect("write remove-me");
+    gitfs
+        .backend()
+        .write_file("also-remove.txt", b"also gone")
+        .expect("write also-remove");
+    gitfs
+        .backend()
+        .commit("post-checkpoint work")
+        .expect("commit post-checkpoint");
+
+    // Verify post-checkpoint files exist on disk
+    assert!(gitfs.backend().read_file("remove-me.txt").is_ok());
+    assert!(gitfs.backend().read_file("also-remove.txt").is_ok());
+
+    // Rollback to checkpoint
+    gitfs.rollback(&checkpoint).expect("rollback");
+
+    // Files from the checkpoint must still exist
+    let kept = gitfs
+        .backend()
+        .read_file("keep.txt")
+        .expect("keep.txt should survive rollback");
+    assert_eq!(kept, b"should survive rollback");
+
+    // Files created after checkpoint must be gone from disk
+    assert!(
+        gitfs.backend().read_file("remove-me.txt").is_err(),
+        "remove-me.txt should be cleaned up after rollback"
+    );
+    assert!(
+        gitfs.backend().read_file("also-remove.txt").is_err(),
+        "also-remove.txt should be cleaned up after rollback"
+    );
 }
 
 #[test]

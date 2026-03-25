@@ -1204,7 +1204,14 @@ impl GitFs {
     }
 
     /// Rollback to a specific commit, resetting the working tree.
+    ///
+    /// This performs both `git reset --hard` (to restore tracked files) and
+    /// `git clean -fd` (to remove untracked files and directories). The clean
+    /// step is necessary because `commit()` builds tree objects directly without
+    /// updating the git index, so files committed via the library API appear as
+    /// "untracked" from git's perspective after a reset.
     pub fn rollback(&self, commit_id: &str) -> Result<()> {
+        // Step 1: Reset tracked files to the target commit
         let output = std::process::Command::new("git")
             .args(["reset", "--hard", commit_id])
             .current_dir(&self.config.repo_path)
@@ -1217,6 +1224,24 @@ impl GitFs {
                 String::from_utf8_lossy(&output.stderr)
             )));
         }
+
+        // Step 2: Remove untracked files and directories left behind.
+        // Since commit() bypasses the git index (building tree objects directly),
+        // files that were committed after the checkpoint are "untracked" after
+        // reset and must be explicitly cleaned.
+        let clean_output = std::process::Command::new("git")
+            .args(["clean", "-fd"])
+            .current_dir(&self.config.repo_path)
+            .output()
+            .map_err(|e| Error::Fuse(format!("git clean failed: {}", e)))?;
+
+        if !clean_output.status.success() {
+            return Err(Error::Fuse(format!(
+                "rollback clean failed: {}",
+                String::from_utf8_lossy(&clean_output.stderr)
+            )));
+        }
+
         Ok(())
     }
 }
