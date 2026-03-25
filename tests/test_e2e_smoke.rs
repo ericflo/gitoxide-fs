@@ -168,6 +168,14 @@ fn full_workflow_smoke_test() {
         .expect("data.txt should survive rollback");
     assert_eq!(data, b"important data");
 
+    // After rollback, experiment.txt must NOT exist on disk.
+    // This verifies that rollback cleans untracked files (created after checkpoint).
+    let exp_on_disk = gitfs.backend().read_file("experiment.txt");
+    assert!(
+        exp_on_disk.is_err(),
+        "experiment.txt should be removed from working tree after rollback"
+    );
+
     // Verify HEAD now points to the checkpoint commit (not the experiment commit)
     let head_after_rollback = gitfs
         .backend()
