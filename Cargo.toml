@@ -10,7 +10,7 @@ keywords = ["fuse", "git", "filesystem", "agentic"]
 categories = ["filesystem", "development-tools"]
 
 [[bin]]
-name = "gitoxide-fs"
+name = "gofs"
 path = "src/main.rs"
 
 [lib]

@@ -5,7 +5,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn cmd() -> Command {
-    Command::cargo_bin("gitoxide-fs").expect("binary should be buildable")
+    Command::cargo_bin("gofs").expect("binary should be buildable")
 }
 
 // =============================================================================
@@ -27,7 +27,7 @@ fn cli_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("gitoxide-fs"));
+        .stdout(predicate::str::contains("gofs"));
 }
 
 // =============================================================================

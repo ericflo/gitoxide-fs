@@ -49,7 +49,7 @@ git clone https://github.com/ericflo/gitoxide-fs.git
 cd gitoxide-fs
 cargo build --release
 
-# The binary is at target/release/gitoxide-fs
+# The binary is at target/release/gofs
 # Optionally install it system-wide:
 cargo install --path .
 ```
@@ -71,7 +71,7 @@ echo "# My Project" > README.md && git add . && git commit -m "init"
 mkdir /tmp/workspace
 
 # 3. Mount the repo
-gitoxide-fs mount --repo ./my-project --mount /tmp/workspace
+gofs mount --repo ./my-project --mount /tmp/workspace
 
 # 4. Work normally — every change becomes a git commit
 echo "fn main() {}" > /tmp/workspace/main.rs
@@ -85,7 +85,7 @@ cd my-project && git log --oneline
 # 9876543 init
 
 # 6. Unmount when done
-gitoxide-fs unmount --mount /tmp/workspace
+gofs unmount --mount /tmp/workspace
 ```
 
 ## Agentic Usage
@@ -94,24 +94,24 @@ The real power of gitoxide-fs is enabling multiple agents to work in parallel wi
 
 ```bash
 # Mount the repo
-gitoxide-fs mount --repo ./project --mount /mnt/work
+gofs mount --repo ./project --mount /mnt/work
 
 # Agent 1: fork, work, merge
-gitoxide-fs fork create --mount /mnt/work --name agent-1-task
+gofs fork create --mount /mnt/work --name agent-1-task
 # Agent 1 writes files to /mnt/work (now on the fork branch)...
 # When done:
-gitoxide-fs fork merge --mount /mnt/work --name agent-1-task
+gofs fork merge --mount /mnt/work --name agent-1-task
 
 # Agent 2: fork from the same point, work in parallel
-gitoxide-fs fork create --mount /mnt/work --name agent-2-task
+gofs fork create --mount /mnt/work --name agent-2-task
 # Agent 2 works independently...
-gitoxide-fs fork merge --mount /mnt/work --name agent-2-task --strategy three-way
+gofs fork merge --mount /mnt/work --name agent-2-task --strategy three-way
 
 # List all forks
-gitoxide-fs fork list --mount /mnt/work
+gofs fork list --mount /mnt/work
 
 # Abandon a fork that didn't work out
-gitoxide-fs fork abandon --mount /mnt/work --name failed-experiment
+gofs fork abandon --mount /mnt/work --name failed-experiment
 ```
 
 Each fork is a git branch. Merging uses configurable strategies (`three-way`, `ours`, `theirs`, `rebase`). Conflicts are detected and reported.
@@ -122,10 +122,10 @@ Agents can save named checkpoints and rollback if something goes wrong:
 
 ```bash
 # Save a checkpoint before risky work
-gitoxide-fs checkpoint --mount /mnt/work --name before-refactor
+gofs checkpoint --mount /mnt/work --name before-refactor
 
 # If things go wrong, rollback
-gitoxide-fs rollback --mount /mnt/work --commit <commit-id>
+gofs rollback --mount /mnt/work --commit <commit-id>
 ```
 
 ## The Fork/Merge Paradigm
@@ -146,28 +146,28 @@ Conflicts are detected and can be resolved with configurable strategies (`three-
 
 ```bash
 # Mount a git repo
-gitoxide-fs mount --repo ./my-project --mount /mnt/workspace
+gofs mount --repo ./my-project --mount /mnt/workspace
 
 # Mount read-only
-gitoxide-fs mount --repo ./my-project --mount /mnt/workspace --read-only
+gofs mount --repo ./my-project --mount /mnt/workspace --read-only
 
 # Mount with custom settings
-gitoxide-fs mount --repo ./my-project --mount /mnt/workspace \
+gofs mount --repo ./my-project --mount /mnt/workspace \
   --debounce-ms 1000 \
   --no-auto-commit \
   --daemon
 
 # Check status
-gitoxide-fs status --mount /mnt/workspace
+gofs status --mount /mnt/workspace
 
 # Create a checkpoint
-gitoxide-fs checkpoint --mount /mnt/workspace --name "before-refactor"
+gofs checkpoint --mount /mnt/workspace --name "before-refactor"
 
 # Rollback to a checkpoint
-gitoxide-fs rollback --mount /mnt/workspace --commit abc123
+gofs rollback --mount /mnt/workspace --commit abc123
 
 # Unmount
-gitoxide-fs unmount --mount /mnt/workspace
+gofs unmount --mount /mnt/workspace
 ```
 
 ## Configuration
