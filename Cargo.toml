@@ -66,6 +66,15 @@ assert_cmd = "2"
 predicates = "3"
 serial_test = "3"
 
+[[example]]
+name = "basic_mount"
+
+[[example]]
+name = "fork_workflow"
+
+[[example]]
+name = "auto_commit"
+
 [[bench]]
 name = "throughput"
 harness = false
