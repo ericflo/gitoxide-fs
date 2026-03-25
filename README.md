@@ -197,6 +197,21 @@ worker_threads = 4
 large_file_threshold = 10485760  # 10 MB
 ```
 
+## Examples
+
+The `examples/` directory contains runnable examples demonstrating key features:
+
+- **[basic_mount.rs](examples/basic_mount.rs)** — Configure and mount a git-backed filesystem
+- **[fork_workflow.rs](examples/fork_workflow.rs)** — Multi-agent fork/merge paradigm with conflict resolution strategies
+- **[auto_commit.rs](examples/auto_commit.rs)** — Tune commit batching and debounce for different workloads
+
+```bash
+# Run an example
+cargo run --example basic_mount -- /path/to/repo /path/to/mount
+cargo run --example fork_workflow
+cargo run --example auto_commit
+```
+
 ## Architecture
 
 ```
