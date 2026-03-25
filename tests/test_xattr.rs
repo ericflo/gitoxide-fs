@@ -19,7 +19,9 @@ fn set_and_get_xattr() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
     backend
         .set_xattr("file.txt", "user.author", b"test-agent")
         .expect("set xattr");
@@ -36,7 +38,9 @@ fn get_nonexistent_xattr_returns_none() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
 
     let value = backend
         .get_xattr("file.txt", "user.missing")
@@ -50,7 +54,9 @@ fn overwrite_xattr() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
     backend
         .set_xattr("file.txt", "user.tag", b"old")
         .expect("set initial xattr");
@@ -74,7 +80,9 @@ fn list_xattrs_on_file() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
     backend
         .set_xattr("file.txt", "user.a", b"1")
         .expect("set xattr a");
@@ -96,7 +104,9 @@ fn list_xattrs_on_file_with_none() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
 
     let names = backend.list_xattr("file.txt").expect("list empty xattrs");
     assert!(names.is_empty());
@@ -112,7 +122,9 @@ fn remove_xattr() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
     backend
         .set_xattr("file.txt", "user.temp", b"value")
         .expect("set xattr");
@@ -132,7 +144,9 @@ fn remove_nonexistent_xattr_errors() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
 
     let result = backend.remove_xattr("file.txt", "user.missing");
     assert!(result.is_err(), "removing nonexistent xattr should error");
@@ -169,7 +183,9 @@ fn xattr_with_binary_value() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
     let binary_data: Vec<u8> = (0..=255).collect();
     backend
         .set_xattr("file.txt", "user.binary", &binary_data)
@@ -187,7 +203,9 @@ fn xattr_with_empty_value() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
     backend
         .set_xattr("file.txt", "user.empty", b"")
         .expect("set empty xattr");
@@ -208,7 +226,9 @@ fn xattr_survives_commit() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
     backend
         .set_xattr("file.txt", "user.persistent", b"survives")
         .expect("set xattr");
@@ -231,7 +251,10 @@ fn set_xattr_on_nonexistent_file_errors() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     let result = backend.set_xattr("nonexistent.txt", "user.test", b"value");
-    assert!(result.is_err(), "setting xattr on nonexistent file should error");
+    assert!(
+        result.is_err(),
+        "setting xattr on nonexistent file should error"
+    );
 }
 
 #[test]
@@ -241,7 +264,10 @@ fn get_xattr_on_nonexistent_file_errors() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     let result = backend.get_xattr("nonexistent.txt", "user.test");
-    assert!(result.is_err(), "getting xattr on nonexistent file should error");
+    assert!(
+        result.is_err(),
+        "getting xattr on nonexistent file should error"
+    );
 }
 
 // =============================================================================
@@ -254,7 +280,9 @@ fn many_xattrs_on_single_file() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
 
     for i in 0..50 {
         let name = format!("user.attr_{}", i);

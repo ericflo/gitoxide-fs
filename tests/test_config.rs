@@ -1,7 +1,7 @@
 //! Tests for configuration parsing and validation.
 
-use gitoxide_fs::Config;
 use gitoxide_fs::config::MergeStrategy;
+use gitoxide_fs::Config;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -11,10 +11,7 @@ use tempfile::TempDir;
 
 #[test]
 fn config_new_with_defaults() {
-    let config = Config::new(
-        PathBuf::from("/tmp/repo"),
-        PathBuf::from("/tmp/mount"),
-    );
+    let config = Config::new(PathBuf::from("/tmp/repo"), PathBuf::from("/tmp/mount"));
     assert_eq!(config.repo_path, PathBuf::from("/tmp/repo"));
     assert_eq!(config.mount_point, PathBuf::from("/tmp/mount"));
     assert!(!config.read_only);
@@ -55,7 +52,10 @@ fn config_default_large_file_threshold() {
 #[test]
 fn config_debounce_duration() {
     let config = Config::new(PathBuf::from("/tmp/r"), PathBuf::from("/tmp/m"));
-    assert_eq!(config.debounce_duration(), std::time::Duration::from_millis(500));
+    assert_eq!(
+        config.debounce_duration(),
+        std::time::Duration::from_millis(500)
+    );
 }
 
 // =============================================================================
@@ -66,7 +66,9 @@ fn config_debounce_duration() {
 fn config_from_toml_file() {
     let dir = TempDir::new().expect("create temp dir");
     let config_path = dir.path().join("config.toml");
-    std::fs::write(&config_path, r#"
+    std::fs::write(
+        &config_path,
+        r#"
 repo_path = "/tmp/repo"
 mount_point = "/tmp/mount"
 read_only = true
@@ -88,7 +90,9 @@ merge_strategy = "Ours"
 cache_size_bytes = 134217728
 worker_threads = 8
 large_file_threshold = 5242880
-"#).expect("write config file");
+"#,
+    )
+    .expect("write config file");
 
     let config = Config::from_file(&config_path).expect("parse config");
     assert!(config.read_only);
@@ -104,10 +108,14 @@ large_file_threshold = 5242880
 fn config_from_minimal_toml() {
     let dir = TempDir::new().expect("create temp dir");
     let config_path = dir.path().join("minimal.toml");
-    std::fs::write(&config_path, r#"
+    std::fs::write(
+        &config_path,
+        r#"
 repo_path = "/tmp/repo"
 mount_point = "/tmp/mount"
-"#).expect("write config file");
+"#,
+    )
+    .expect("write config file");
 
     let config = Config::from_file(&config_path).expect("parse minimal config");
     assert_eq!(config.repo_path, PathBuf::from("/tmp/repo"));

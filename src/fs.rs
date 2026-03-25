@@ -11,9 +11,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use fuser::{
-    FileAttr, FileType as FuseFileType, Filesystem, MountOption, ReplyAttr, ReplyCreate,
-    ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr,
-    Request,
+    FileAttr, FileType as FuseFileType, Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData,
+    ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request,
 };
 
 use crate::config::Config;
@@ -240,13 +239,7 @@ impl Filesystem for FuseHandler {
         self.maybe_commit();
     }
 
-    fn lookup(
-        &mut self,
-        _req: &Request<'_>,
-        parent: u64,
-        name: &OsStr,
-        reply: ReplyEntry,
-    ) {
+    fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
         let name_str = match name.to_str() {
             Some(n) => n,
             None => {
@@ -275,13 +268,7 @@ impl Filesystem for FuseHandler {
         }
     }
 
-    fn getattr(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        _fh: Option<u64>,
-        reply: ReplyAttr,
-    ) {
+    fn getattr(&mut self, _req: &Request<'_>, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         let path = match self.inodes.get_path(ino) {
             Some(p) => p.clone(),
             None => {
@@ -602,13 +589,7 @@ impl Filesystem for FuseHandler {
         }
     }
 
-    fn unlink(
-        &mut self,
-        _req: &Request<'_>,
-        parent: u64,
-        name: &OsStr,
-        reply: ReplyEmpty,
-    ) {
+    fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         if self.config.read_only {
             reply.error(libc::EROFS);
             return;
@@ -633,13 +614,7 @@ impl Filesystem for FuseHandler {
         }
     }
 
-    fn rmdir(
-        &mut self,
-        _req: &Request<'_>,
-        parent: u64,
-        name: &OsStr,
-        reply: ReplyEmpty,
-    ) {
+    fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         if self.config.read_only {
             reply.error(libc::EROFS);
             return;
@@ -900,13 +875,7 @@ impl Filesystem for FuseHandler {
         }
     }
 
-    fn removexattr(
-        &mut self,
-        _req: &Request<'_>,
-        ino: u64,
-        name: &OsStr,
-        reply: ReplyEmpty,
-    ) {
+    fn removexattr(&mut self, _req: &Request<'_>, ino: u64, name: &OsStr, reply: ReplyEmpty) {
         let path = match self.inodes.get_path(ino) {
             Some(p) => p.clone(),
             None => {

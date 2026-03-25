@@ -14,7 +14,9 @@ fn write_creates_commit() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("committed.txt", b"content").expect("write file");
+    backend
+        .write_file("committed.txt", b"content")
+        .expect("write file");
     // Force commit
     let commit_id = backend.commit("test commit").expect("commit");
     assert!(!commit_id.is_empty(), "commit should return an ID");
@@ -25,8 +27,12 @@ fn commit_message_includes_path() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("important.txt", b"data").expect("write file");
-    let _commit_id = backend.commit("Auto: modify important.txt").expect("commit");
+    backend
+        .write_file("important.txt", b"data")
+        .expect("write file");
+    let _commit_id = backend
+        .commit("Auto: modify important.txt")
+        .expect("commit");
 
     let log = backend.log(Some(1)).expect("get log");
     assert_eq!(log.len(), 1);
@@ -41,9 +47,11 @@ fn commit_message_includes_operation_type() {
     let fix = TestFixture::new();
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
-    backend.write_file("new.txt", b"created").expect("write file");
+    backend
+        .write_file("new.txt", b"created")
+        .expect("write file");
 
-    use gitoxide_fs::git::{PendingChange, ChangeOperation};
+    use gitoxide_fs::git::{ChangeOperation, PendingChange};
     let changes = vec![PendingChange {
         path: "new.txt".to_string(),
         operation: ChangeOperation::Create,
@@ -87,7 +95,7 @@ fn batch_commit_multiple_changes() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    use gitoxide_fs::git::{PendingChange, ChangeOperation};
+    use gitoxide_fs::git::{ChangeOperation, PendingChange};
     let changes = vec![
         PendingChange {
             path: "batch_a.txt".to_string(),
@@ -125,10 +133,12 @@ fn batch_commit_mixed_operations() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     // Setup
-    backend.write_file("existing.txt", b"original").expect("setup");
+    backend
+        .write_file("existing.txt", b"original")
+        .expect("setup");
     backend.commit("setup").expect("setup commit");
 
-    use gitoxide_fs::git::{PendingChange, ChangeOperation};
+    use gitoxide_fs::git::{ChangeOperation, PendingChange};
     let changes = vec![
         PendingChange {
             path: "new_file.txt".to_string(),
@@ -147,8 +157,12 @@ fn batch_commit_mixed_operations() {
         },
     ];
 
-    backend.write_file("new_file.txt", b"new").expect("write new");
-    backend.write_file("existing.txt", b"modified").expect("modify");
+    backend
+        .write_file("new_file.txt", b"new")
+        .expect("write new");
+    backend
+        .write_file("existing.txt", b"modified")
+        .expect("modify");
 
     let commit_id = backend.commit_pending(&changes).expect("batch commit");
     assert!(!commit_id.is_empty());
@@ -165,7 +179,8 @@ fn log_returns_commits_in_reverse_chronological_order() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     for i in 0..5 {
-        backend.write_file(&format!("file{}.txt", i), format!("{}", i).as_bytes())
+        backend
+            .write_file(&format!("file{}.txt", i), format!("{}", i).as_bytes())
             .expect("write");
         backend.commit(&format!("commit {}", i)).expect("commit");
     }
@@ -189,7 +204,9 @@ fn log_with_limit() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     for i in 0..10 {
-        backend.write_file(&format!("file{}.txt", i), b"x").expect("write");
+        backend
+            .write_file(&format!("file{}.txt", i), b"x")
+            .expect("write");
         backend.commit(&format!("commit {}", i)).expect("commit");
     }
 
@@ -203,10 +220,14 @@ fn log_commit_has_parent() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("first.txt", b"first").expect("write first");
+    backend
+        .write_file("first.txt", b"first")
+        .expect("write first");
     let first_id = backend.commit("first commit").expect("first commit");
 
-    backend.write_file("second.txt", b"second").expect("write second");
+    backend
+        .write_file("second.txt", b"second")
+        .expect("write second");
     backend.commit("second commit").expect("second commit");
 
     let log = backend.log(Some(1)).expect("get log");
@@ -226,15 +247,22 @@ fn diff_between_commits() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("diff_file.txt", b"version 1").expect("write v1");
+    backend
+        .write_file("diff_file.txt", b"version 1")
+        .expect("write v1");
     let commit1 = backend.commit("v1").expect("commit v1");
 
-    backend.write_file("diff_file.txt", b"version 2").expect("write v2");
+    backend
+        .write_file("diff_file.txt", b"version 2")
+        .expect("write v2");
     let commit2 = backend.commit("v2").expect("commit v2");
 
     let diff = backend.diff(&commit1, &commit2).expect("get diff");
     assert!(!diff.is_empty(), "diff should not be empty");
-    assert!(diff.contains("diff_file.txt"), "diff should reference changed file");
+    assert!(
+        diff.contains("diff_file.txt"),
+        "diff should reference changed file"
+    );
 }
 
 #[test]
@@ -246,7 +274,9 @@ fn diff_shows_added_file() {
     backend.write_file("base.txt", b"base").expect("write base");
     let commit1 = backend.commit("base").expect("commit base");
 
-    backend.write_file("added.txt", b"new file").expect("write added");
+    backend
+        .write_file("added.txt", b"new file")
+        .expect("write added");
     let commit2 = backend.commit("add file").expect("commit add");
 
     let diff = backend.diff(&commit1, &commit2).expect("get diff");
@@ -259,14 +289,19 @@ fn diff_shows_deleted_file() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("will_delete.txt", b"delete me").expect("write");
+    backend
+        .write_file("will_delete.txt", b"delete me")
+        .expect("write");
     let commit1 = backend.commit("before delete").expect("commit");
 
     backend.delete_file("will_delete.txt").expect("delete");
     let commit2 = backend.commit("after delete").expect("commit");
 
     let diff = backend.diff(&commit1, &commit2).expect("get diff");
-    assert!(diff.contains("will_delete.txt"), "diff should show deleted file");
+    assert!(
+        diff.contains("will_delete.txt"),
+        "diff should show deleted file"
+    );
 }
 
 // =============================================================================
@@ -280,12 +315,23 @@ fn gitignore_hides_matching_files() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     // Write a .gitignore
-    backend.write_file(".gitignore", b"*.log\n*.tmp\n").expect("write gitignore");
+    backend
+        .write_file(".gitignore", b"*.log\n*.tmp\n")
+        .expect("write gitignore");
     backend.commit("add gitignore").expect("commit");
 
-    assert!(backend.is_ignored("debug.log").expect("check ignored"), "*.log should be ignored");
-    assert!(backend.is_ignored("temp.tmp").expect("check ignored"), "*.tmp should be ignored");
-    assert!(!backend.is_ignored("readme.md").expect("check not ignored"), "*.md should not be ignored");
+    assert!(
+        backend.is_ignored("debug.log").expect("check ignored"),
+        "*.log should be ignored"
+    );
+    assert!(
+        backend.is_ignored("temp.tmp").expect("check ignored"),
+        "*.tmp should be ignored"
+    );
+    assert!(
+        !backend.is_ignored("readme.md").expect("check not ignored"),
+        "*.md should not be ignored"
+    );
 }
 
 #[test]
@@ -294,10 +340,14 @@ fn gitignore_pattern_directory() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file(".gitignore", b"node_modules/\nbuild/\n").expect("write gitignore");
+    backend
+        .write_file(".gitignore", b"node_modules/\nbuild/\n")
+        .expect("write gitignore");
     backend.commit("add gitignore").expect("commit");
 
-    assert!(backend.is_ignored("node_modules/package.json").expect("check"));
+    assert!(backend
+        .is_ignored("node_modules/package.json")
+        .expect("check"));
     assert!(backend.is_ignored("build/output.js").expect("check"));
     assert!(!backend.is_ignored("src/main.rs").expect("check"));
 }
@@ -308,7 +358,9 @@ fn gitignore_negation_pattern() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file(".gitignore", b"*.log\n!important.log\n").expect("write gitignore");
+    backend
+        .write_file(".gitignore", b"*.log\n!important.log\n")
+        .expect("write gitignore");
     backend.commit("add gitignore").expect("commit");
 
     assert!(backend.is_ignored("debug.log").expect("check"));
@@ -365,7 +417,9 @@ fn open_existing_repo_with_history() {
     fix.commit_all("initial commit");
 
     let backend = GitBackend::open(&fix.config()).expect("open existing repo");
-    let content = backend.read_file("existing.txt").expect("read pre-existing file");
+    let content = backend
+        .read_file("existing.txt")
+        .expect("read pre-existing file");
     assert_eq!(content, b"pre-existing content");
 }
 
@@ -406,14 +460,20 @@ fn read_file_at_specific_commit() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("versioned.txt", b"version 1").expect("write v1");
+    backend
+        .write_file("versioned.txt", b"version 1")
+        .expect("write v1");
     let commit1 = backend.commit("v1").expect("commit v1");
 
-    backend.write_file("versioned.txt", b"version 2").expect("write v2");
+    backend
+        .write_file("versioned.txt", b"version 2")
+        .expect("write v2");
     let _commit2 = backend.commit("v2").expect("commit v2");
 
     // Read file as it was at commit1
-    let content = backend.read_file_at_commit("versioned.txt", &commit1).expect("read at commit");
+    let content = backend
+        .read_file_at_commit("versioned.txt", &commit1)
+        .expect("read at commit");
     assert_eq!(content, b"version 1");
 }
 
@@ -423,14 +483,18 @@ fn read_deleted_file_at_previous_commit() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("ephemeral.txt", b"temporary").expect("write");
+    backend
+        .write_file("ephemeral.txt", b"temporary")
+        .expect("write");
     let commit1 = backend.commit("add file").expect("commit");
 
     backend.delete_file("ephemeral.txt").expect("delete");
     backend.commit("delete file").expect("commit");
 
     // File should still be accessible at the old commit
-    let content = backend.read_file_at_commit("ephemeral.txt", &commit1).expect("read at old commit");
+    let content = backend
+        .read_file_at_commit("ephemeral.txt", &commit1)
+        .expect("read at old commit");
     assert_eq!(content, b"temporary");
 }
 
@@ -440,7 +504,8 @@ fn read_file_at_nonexistent_commit() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    let result = backend.read_file_at_commit("file.txt", "0000000000000000000000000000000000000000");
+    let result =
+        backend.read_file_at_commit("file.txt", "0000000000000000000000000000000000000000");
     assert!(result.is_err(), "should error for nonexistent commit");
 }
 
@@ -483,7 +548,9 @@ fn checkout_branch() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("main_file.txt", b"on main").expect("write");
+    backend
+        .write_file("main_file.txt", b"on main")
+        .expect("write");
     backend.commit("main commit").expect("commit");
 
     backend.create_branch("dev").expect("create dev");
@@ -515,7 +582,9 @@ fn repo_info_with_commits() {
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
     for i in 0..5 {
-        backend.write_file(&format!("f{}.txt", i), b"x").expect("write");
+        backend
+            .write_file(&format!("f{}.txt", i), b"x")
+            .expect("write");
         backend.commit(&format!("commit {}", i)).expect("commit");
     }
 
@@ -571,7 +640,9 @@ fn binary_file_round_trip() {
 
     // Create a "binary" file with all possible byte values
     let data: Vec<u8> = (0..=255).cycle().take(65536).collect();
-    backend.write_file("binary.dat", &data).expect("write binary");
+    backend
+        .write_file("binary.dat", &data)
+        .expect("write binary");
     backend.commit("add binary").expect("commit");
 
     let content = backend.read_file("binary.dat").expect("read binary");
@@ -586,7 +657,9 @@ fn binary_file_with_git_special_sequences() {
 
     // Content that might confuse git's text/binary detection
     let data = b"\x00\x01\x02\x03GIT\x00PACK\x00\xff\xfe\xfd";
-    backend.write_file("tricky.bin", data).expect("write tricky binary");
+    backend
+        .write_file("tricky.bin", data)
+        .expect("write tricky binary");
     backend.commit("add tricky binary").expect("commit");
 
     let content = backend.read_file("tricky.bin").expect("read tricky binary");
