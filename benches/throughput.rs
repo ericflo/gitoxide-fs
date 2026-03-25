@@ -18,12 +18,9 @@ fn setup_backend() -> (TempDir, GitBackend) {
     backend
         .write_file(".gitkeep", b"")
         .expect("write initial file");
-    backend
-        .commit("initial commit")
-        .expect("initial commit");
+    backend.commit("initial commit").expect("initial commit");
     (dir, backend)
 }
-
 
 fn bench_sequential_write(c: &mut Criterion) {
     let mut group = c.benchmark_group("sequential_write");
@@ -92,9 +89,7 @@ fn bench_random_read(c: &mut Criterion) {
             let data = vec![0x42u8; size];
             let num_files = 100;
             for i in 0..num_files {
-                backend
-                    .write_file(&format!("rr_{}.bin", i), &data)
-                    .unwrap();
+                backend.write_file(&format!("rr_{}.bin", i), &data).unwrap();
             }
             // Read in a scrambled order.
             let mut counter = 0u64;
@@ -159,10 +154,7 @@ fn bench_many_small_files(c: &mut Criterion) {
                 |(_dir, backend)| {
                     for i in 0..count {
                         backend
-                            .write_file(
-                                &format!("small/f_{}.txt", i),
-                                b"small file content here",
-                            )
+                            .write_file(&format!("small/f_{}.txt", i), b"small file content here")
                             .unwrap();
                     }
                     black_box(());
@@ -304,9 +296,7 @@ fn bench_merge_speed(c: &mut Criterion) {
                 let fm = ForkManager::new(backend);
                 // Create fork, add a non-conflicting file on the fork branch.
                 fm.create_fork("merge_bench").unwrap();
-                fm.backend()
-                    .checkout_branch("merge_bench")
-                    .unwrap();
+                fm.backend().checkout_branch("merge_bench").unwrap();
                 fm.backend()
                     .write_file("fork_only.txt", b"fork content")
                     .unwrap();
@@ -455,9 +445,7 @@ fn bench_symlink_operations(c: &mut Criterion) {
 
 fn bench_xattr_operations(c: &mut Criterion) {
     let (_dir, backend) = setup_backend();
-    backend
-        .write_file("xattr_file.txt", b"xattr test")
-        .unwrap();
+    backend.write_file("xattr_file.txt", b"xattr test").unwrap();
 
     c.bench_function("set_xattr", |b| {
         let mut counter = 0u64;
@@ -483,11 +471,7 @@ fn bench_xattr_operations(c: &mut Criterion) {
 
     c.bench_function("get_xattr", |b| {
         b.iter(|| {
-            black_box(
-                backend
-                    .get_xattr("xattr_file.txt", "user.attr_25")
-                    .unwrap(),
-            );
+            black_box(backend.get_xattr("xattr_file.txt", "user.attr_25").unwrap());
         });
     });
 
@@ -571,8 +555,7 @@ fn bench_concurrent_read_throughput(c: &mut Criterion) {
                                 std::thread::spawn(move || {
                                     for i in 0..50 {
                                         black_box(
-                                            be.read_file(&format!("rt{}/f_{}.txt", t, i))
-                                                .unwrap(),
+                                            be.read_file(&format!("rt{}/f_{}.txt", t, i)).unwrap(),
                                         );
                                     }
                                 })
