@@ -89,8 +89,7 @@ fn full_workflow_smoke_test() {
         .read_file_at_commit("src/lib.rs", &main_commit)
         .expect("read lib.rs at main commit");
     assert_eq!(
-        main_lib,
-        b"pub fn add(a: i32, b: i32) -> i32 { a + b }",
+        main_lib, b"pub fn add(a: i32, b: i32) -> i32 { a + b }",
         "main branch tree should NOT have the fork's changes"
     );
     let auth_at_main = fm
@@ -109,9 +108,7 @@ fn full_workflow_smoke_test() {
     assert_eq!(fork_auth, b"pub fn login() -> bool { true }");
 
     // === Step 5: Switch back to main and merge the fork ===
-    fm.backend()
-        .checkout_branch("main")
-        .expect("checkout main");
+    fm.backend().checkout_branch("main").expect("checkout main");
 
     // Restore main's working tree before merge
     fm.backend()
