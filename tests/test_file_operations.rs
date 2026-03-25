@@ -882,3 +882,314 @@ fn concurrent_write_same_file() {
     let content = backend.read_file("contested.txt").expect("read contested");
     assert!(String::from_utf8_lossy(&content).starts_with("writer "));
 }
+
+// =============================================================================
+// RENAME OPERATIONS
+// =============================================================================
+
+#[test]
+fn rename_file_in_same_directory() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("old_name.txt", b"rename me").expect("write file");
+    backend.rename("old_name.txt", "new_name.txt").expect("rename file");
+
+    let content = backend.read_file("new_name.txt").expect("read renamed file");
+    assert_eq!(content, b"rename me");
+
+    let result = backend.read_file("old_name.txt");
+    assert!(result.is_err(), "old name should not exist after rename");
+}
+
+#[test]
+fn rename_file_across_directories() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.create_dir("src").expect("create src dir");
+    backend.create_dir("dst").expect("create dst dir");
+    backend.write_file("src/file.txt", b"moving").expect("write file");
+    backend.rename("src/file.txt", "dst/file.txt").expect("move file");
+
+    let content = backend.read_file("dst/file.txt").expect("read moved file");
+    assert_eq!(content, b"moving");
+
+    let result = backend.read_file("src/file.txt");
+    assert!(result.is_err(), "source should not exist after move");
+}
+
+#[test]
+fn rename_directory_with_contents() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.create_dir("old_dir").expect("create dir");
+    backend.write_file("old_dir/file.txt", b"in dir").expect("write in dir");
+    backend.rename("old_dir", "new_dir").expect("rename directory");
+
+    let content = backend.read_file("new_dir/file.txt").expect("read from renamed dir");
+    assert_eq!(content, b"in dir");
+
+    let result = backend.stat("old_dir");
+    assert!(result.is_err(), "old dir should not exist after rename");
+}
+
+#[test]
+fn rename_to_same_name_noop() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("same.txt", b"unchanged").expect("write file");
+    backend.rename("same.txt", "same.txt").expect("rename to self");
+
+    let content = backend.read_file("same.txt").expect("read after noop rename");
+    assert_eq!(content, b"unchanged");
+}
+
+#[test]
+fn rename_nonexistent_file_errors() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    let result = backend.rename("ghost.txt", "new.txt");
+    assert!(result.is_err(), "renaming nonexistent file should error");
+}
+
+#[test]
+fn rename_overwrites_existing_file() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("source.txt", b"new content").expect("write source");
+    backend.write_file("target.txt", b"old content").expect("write target");
+    backend.rename("source.txt", "target.txt").expect("rename over existing");
+
+    let content = backend.read_file("target.txt").expect("read overwritten");
+    assert_eq!(content, b"new content");
+
+    let result = backend.read_file("source.txt");
+    assert!(result.is_err(), "source should not exist after overwrite rename");
+}
+
+#[test]
+fn rename_directory_over_non_empty_directory_errors() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.create_dir("dir_a").expect("create dir_a");
+    backend.write_file("dir_a/file.txt", b"a").expect("write in a");
+    backend.create_dir("dir_b").expect("create dir_b");
+    backend.write_file("dir_b/file.txt", b"b").expect("write in b");
+
+    let result = backend.rename("dir_a", "dir_b");
+    assert!(result.is_err(), "renaming dir over non-empty dir should error");
+}
+
+#[test]
+fn rename_preserves_content_exactly() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    let data: Vec<u8> = (0..=255).cycle().take(10000).collect();
+    backend.write_file("binary.bin", &data).expect("write binary");
+    backend.rename("binary.bin", "moved.bin").expect("rename binary");
+
+    let content = backend.read_file("moved.bin").expect("read renamed binary");
+    assert_eq!(content, data);
+}
+
+#[test]
+fn rename_creates_commit_with_both_paths() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("before.txt", b"data").expect("write file");
+    backend.commit("add file").expect("first commit");
+    backend.rename("before.txt", "after.txt").expect("rename");
+    backend.commit("rename file").expect("rename commit");
+
+    let log = backend.log(Some(1)).expect("get log");
+    assert!(!log.is_empty());
+    // The commit should reference the rename
+    let msg = &log[0].message;
+    assert!(
+        msg.contains("before.txt") || msg.contains("after.txt") || msg.contains("rename"),
+        "commit message should reference the rename"
+    );
+}
+
+// =============================================================================
+// TRUNCATE AND FALLOCATE
+// =============================================================================
+
+#[test]
+fn truncate_file_to_zero() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("data.txt", b"some content here").expect("write file");
+    backend.truncate_file("data.txt", 0).expect("truncate to zero");
+
+    let content = backend.read_file("data.txt").expect("read truncated file");
+    assert_eq!(content, b"");
+}
+
+#[test]
+fn truncate_file_to_smaller_size() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("data.txt", b"Hello, World!").expect("write file");
+    backend.truncate_file("data.txt", 5).expect("truncate to 5 bytes");
+
+    let content = backend.read_file("data.txt").expect("read truncated file");
+    assert_eq!(content, b"Hello");
+}
+
+#[test]
+fn truncate_file_to_larger_size_extends_with_zeros() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("data.txt", b"Hi").expect("write file");
+    backend.truncate_file("data.txt", 10).expect("truncate to larger");
+
+    let content = backend.read_file("data.txt").expect("read extended file");
+    assert_eq!(content.len(), 10);
+    assert_eq!(&content[..2], b"Hi");
+    assert!(content[2..].iter().all(|&b| b == 0), "extension should be zero-filled");
+}
+
+#[test]
+fn truncate_nonexistent_file_errors() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    let result = backend.truncate_file("nonexistent.txt", 0);
+    assert!(result.is_err(), "truncating nonexistent file should error");
+}
+
+#[test]
+fn fallocate_preallocates_space() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("prealloc.txt", b"").expect("create empty file");
+    backend.fallocate("prealloc.txt", 1024 * 1024).expect("fallocate 1MB");
+
+    let stat = backend.stat("prealloc.txt").expect("stat preallocated file");
+    assert!(stat.size >= 1024 * 1024, "file should be at least 1MB after fallocate");
+}
+
+// =============================================================================
+// PERMISSION TESTS
+// =============================================================================
+
+#[test]
+fn chmod_changes_mode() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("script.sh", b"#!/bin/bash\necho hello").expect("write script");
+    backend.set_permissions("script.sh", 0o755).expect("chmod");
+
+    let mode = backend.get_permissions("script.sh").expect("get permissions");
+    assert_eq!(mode & 0o777, 0o755, "permissions should be 755");
+}
+
+#[test]
+fn permission_preserved_across_reads() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("exec.sh", b"#!/bin/sh").expect("write file");
+    backend.set_permissions("exec.sh", 0o755).expect("set exec bit");
+
+    // Read the file, then check permissions again
+    let _content = backend.read_file("exec.sh").expect("read file");
+    let stat = backend.stat("exec.sh").expect("stat after read");
+    assert_eq!(stat.mode & 0o111, 0o111, "exec bit should survive read");
+}
+
+#[test]
+fn permission_preserved_in_git_commit() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("script.sh", b"#!/bin/bash").expect("write file");
+    backend.set_permissions("script.sh", 0o755).expect("chmod");
+    backend.commit("add executable script").expect("commit");
+
+    // After commit, permission should still be there
+    let stat = backend.stat("script.sh").expect("stat after commit");
+    assert_eq!(stat.mode & 0o111, 0o111, "exec bit should survive commit");
+}
+
+#[test]
+fn default_file_permissions() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("default.txt", b"data").expect("write file");
+    let stat = backend.stat("default.txt").expect("stat new file");
+
+    // Git tracks 0644 for regular files by default
+    assert_eq!(stat.mode & 0o777, 0o644, "default file mode should be 644");
+}
+
+#[test]
+fn default_directory_permissions() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.create_dir("newdir").expect("create dir");
+    let stat = backend.stat("newdir").expect("stat new dir");
+
+    // Directories typically get 0755
+    assert_eq!(stat.mode & 0o777, 0o755, "default dir mode should be 755");
+}
+
+#[test]
+fn executable_bit_roundtrip() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("tool", b"#!/bin/sh\ntrue").expect("write tool");
+    backend.set_permissions("tool", 0o755).expect("make executable");
+    backend.commit("add tool").expect("commit");
+
+    // Git supports 100644 (not executable) and 100755 (executable)
+    let stat = backend.stat("tool").expect("stat after roundtrip");
+    assert_eq!(stat.mode & 0o111, 0o111, "executable bit should roundtrip through git");
+}
+
+#[test]
+fn set_permissions_on_nonexistent_file_errors() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    let result = backend.set_permissions("nonexistent.txt", 0o644);
+    assert!(result.is_err(), "chmod on nonexistent file should error");
+}

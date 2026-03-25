@@ -136,9 +136,24 @@ impl GitBackend {
         todo!("GitBackend::create_hardlink not implemented")
     }
 
+    /// Truncate a file to the given size.
+    pub fn truncate_file(&self, _path: &str, _size: u64) -> Result<()> {
+        todo!("GitBackend::truncate_file not implemented")
+    }
+
+    /// Pre-allocate space for a file.
+    pub fn fallocate(&self, _path: &str, _size: u64) -> Result<()> {
+        todo!("GitBackend::fallocate not implemented")
+    }
+
     /// Set file permissions.
     pub fn set_permissions(&self, _path: &str, _mode: u32) -> Result<()> {
         todo!("GitBackend::set_permissions not implemented")
+    }
+
+    /// Get file permissions.
+    pub fn get_permissions(&self, _path: &str) -> Result<u32> {
+        todo!("GitBackend::get_permissions not implemented")
     }
 
     /// Get the current branch name.
