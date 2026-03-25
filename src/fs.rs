@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
+// Re-export HashMap for mount tracking (mount_point -> repo_path)
+type MountMap = HashMap<PathBuf, PathBuf>;
+
 use fuser::{
     FileAttr, FileType as FuseFileType, Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData,
     ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request,
@@ -27,10 +30,11 @@ const FUSE_ROOT_ID: u64 = 1;
 // Global state for tracking active mounts
 // ===========================================================================
 
-/// Track which repo paths are currently mounted to prevent double-mounting.
-fn mounted_repos() -> &'static Mutex<HashSet<PathBuf>> {
-    static REPOS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
-    REPOS.get_or_init(|| Mutex::new(HashSet::new()))
+/// Track active mounts: mount_point -> repo_path, for double-mount prevention
+/// and cleanup on unmount.
+fn active_mounts() -> &'static Mutex<MountMap> {
+    static MOUNTS: OnceLock<Mutex<MountMap>> = OnceLock::new();
+    MOUNTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 // ===========================================================================
@@ -1053,11 +1057,12 @@ impl GitFs {
     /// Consumes self — the GitBackend is moved into the FUSE handler.
     pub fn mount(self, mount_point: &Path) -> Result<()> {
         let repo_path = self.config.repo_path.canonicalize().map_err(Error::Io)?;
+        let mount_abs = std::fs::canonicalize(mount_point).map_err(Error::Io)?;
 
         // Prevent double-mounting the same repo
         {
-            let repos = mounted_repos().lock().unwrap();
-            if repos.contains(&repo_path) {
+            let mounts = active_mounts().lock().unwrap();
+            if mounts.values().any(|r| r == &repo_path) {
                 return Err(Error::Fuse(format!(
                     "repository {} is already mounted",
                     repo_path.display()
@@ -1077,8 +1082,8 @@ impl GitFs {
         let session = fuser::spawn_mount2(handler, mount_point, &options)
             .map_err(|e| Error::Fuse(format!("mount failed: {}", e)))?;
 
-        // Track the mounted repo
-        mounted_repos().lock().unwrap().insert(repo_path);
+        // Track mount_point -> repo_path so unmount can clean up
+        active_mounts().lock().unwrap().insert(mount_abs, repo_path);
 
         // Keep the session alive — it will be cleaned up on unmount or process exit.
         // The AutoUnmount option ensures the kernel unmounts if the process dies.
@@ -1090,10 +1095,11 @@ impl GitFs {
     /// Mount the filesystem with specific FUSE options.
     pub fn mount_with_options(self, mount_point: &Path, extra_options: &[&str]) -> Result<()> {
         let repo_path = self.config.repo_path.canonicalize().map_err(Error::Io)?;
+        let mount_abs = std::fs::canonicalize(mount_point).map_err(Error::Io)?;
 
         {
-            let repos = mounted_repos().lock().unwrap();
-            if repos.contains(&repo_path) {
+            let mounts = active_mounts().lock().unwrap();
+            if mounts.values().any(|r| r == &repo_path) {
                 return Err(Error::Fuse(format!(
                     "repository {} is already mounted",
                     repo_path.display()
@@ -1120,7 +1126,7 @@ impl GitFs {
         let session = fuser::spawn_mount2(handler, mount_point, &options)
             .map_err(|e| Error::Fuse(format!("mount failed: {}", e)))?;
 
-        mounted_repos().lock().unwrap().insert(repo_path);
+        active_mounts().lock().unwrap().insert(mount_abs, repo_path);
         std::mem::forget(session);
 
         Ok(())
@@ -1128,19 +1134,34 @@ impl GitFs {
 
     /// Unmount the filesystem at the given mount point.
     pub fn unmount(mount_point: &Path) -> Result<()> {
-        // Use fusermount to unmount (standard FUSE unmount mechanism)
-        let output = std::process::Command::new("fusermount")
-            .args(["-u", &mount_point.to_string_lossy()])
+        let mount_str = mount_point.to_string_lossy();
+        // Try fusermount3 (fuse3), fusermount (fuse2), then umount as fallback
+        let output = std::process::Command::new("fusermount3")
+            .args(["-u", &*mount_str])
             .output()
             .or_else(|_| {
-                // Fallback to umount if fusermount not available
+                std::process::Command::new("fusermount")
+                    .args(["-u", &*mount_str])
+                    .output()
+            })
+            .or_else(|_| {
                 std::process::Command::new("umount")
-                    .arg(mount_point.to_string_lossy().to_string())
+                    .arg(&*mount_str)
                     .output()
             })
             .map_err(|e| Error::Fuse(format!("unmount failed: {}", e)))?;
 
         if output.status.success() {
+            // Clean up mount tracking so the repo can be remounted
+            if let Ok(mount_abs) = std::fs::canonicalize(mount_point) {
+                active_mounts().lock().unwrap().remove(&mount_abs);
+            } else {
+                // Mount point may no longer exist after unmount; try raw path
+                active_mounts()
+                    .lock()
+                    .unwrap()
+                    .remove(&mount_point.to_path_buf());
+            }
             Ok(())
         } else {
             Err(Error::Fuse(format!(
