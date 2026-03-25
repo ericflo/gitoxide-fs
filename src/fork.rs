@@ -50,10 +50,15 @@ pub struct MergeResult {
 /// A merge conflict for a specific file.
 #[derive(Debug, Clone)]
 pub struct MergeConflict {
+    /// Path of the conflicting file.
     pub path: String,
+    /// What kind of conflict occurred.
     pub conflict_type: ConflictType,
+    /// Our side's content (if the file exists on our side).
     pub ours: Option<Vec<u8>>,
+    /// Their side's content (if the file exists on their side).
     pub theirs: Option<Vec<u8>>,
+    /// Common ancestor's content (if the file existed in the base).
     pub base: Option<Vec<u8>>,
 }
 

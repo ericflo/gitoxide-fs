@@ -262,10 +262,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 if forks.is_empty() {
                     println!("No forks found.");
                 } else {
-                    println!(
-                        "{:<20} {:<25} {:<15} {}",
-                        "NAME", "BRANCH", "AHEAD", "MERGED"
-                    );
+                    println!("{:<20} {:<25} {:<15} MERGED", "NAME", "BRANCH", "AHEAD");
                     println!("{}", "-".repeat(70));
                     for fork in &forks {
                         println!(

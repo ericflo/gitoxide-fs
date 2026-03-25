@@ -38,8 +38,8 @@ jobs:
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-clippy-
-      - name: Run clippy (warnings only, not blocking)
-        run: cargo clippy 2>&1 || true
+      - name: Run clippy (blocking)
+        run: cargo clippy -- -D warnings
 
   test:
     name: Test
