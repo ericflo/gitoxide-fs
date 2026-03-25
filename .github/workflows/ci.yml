@@ -62,3 +62,34 @@ jobs:
         run: |
           cargo test --lib -- --test-threads=1
           cargo test --test test_agentic --test test_cli --test test_concurrency --test test_config --test test_edge_cases --test test_error_recovery --test test_file_operations --test test_fork_merge --test test_git_integration --test test_links --test test_xattr -- --test-threads=1
+
+  mount-tests:
+    name: Mount Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install FUSE
+        run: sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3
+      - name: Enable FUSE for unprivileged users
+        run: |
+          sudo modprobe fuse
+          sudo chmod 666 /dev/fuse
+          # Allow user_allow_other in fuse config (needed for some mount options)
+          echo "user_allow_other" | sudo tee -a /etc/fuse.conf
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+      - name: Configure git for tests
+        run: |
+          git config --global user.email "ci@test.com"
+          git config --global user.name "CI"
+          git config --global init.defaultBranch main
+      - name: Run mount integration tests
+        run: cargo test --test test_mount_integration -- --test-threads=1
