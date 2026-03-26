@@ -48,6 +48,10 @@ bytes = "1"
 thiserror = "2"
 anyhow = "1"
 
+# Colored terminal output
+anstream = "0.6"
+anstyle = "1"
+
 # Signal handling
 ctrlc = "3"
 

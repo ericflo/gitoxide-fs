@@ -88,6 +88,43 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
+    /// Return an actionable hint for the user, if one applies to this error.
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            Error::NotFound(p) if p.contains('/') || p.contains("repo") || p.contains("git") => {
+                Some("check the path or run `git init` to create a new repository")
+            }
+            Error::NotFound(_) => {
+                Some("the target path does not exist — create it first with `mkdir -p`")
+            }
+            Error::PermissionDenied(_) => {
+                Some("check FUSE permissions; you may need to be in the `fuse` group or run with `allow_other`")
+            }
+            Error::Fuse(msg) if msg.contains("mount") => {
+                Some("is the mount point an empty directory? Check that FUSE is installed (`fusermount3 --version`)")
+            }
+            Error::Config(_) => {
+                Some("check your config file syntax — see `gofs mount --help` for options")
+            }
+            Error::AlreadyExists(_) => {
+                Some("a resource with that name already exists — choose a different name or remove the existing one")
+            }
+            Error::Fork(msg) if msg.contains("not found") => {
+                Some("list available forks with `gofs fork list --repo <path>`")
+            }
+            Error::MergeConflict { .. } => {
+                Some("try a different merge strategy: --strategy ours, --strategy theirs, or resolve manually")
+            }
+            Error::Git(msg) if msg.contains("not a git repository") || msg.contains("open") => {
+                Some("the path is not a git repository — run `git init` first or check the --repo path")
+            }
+            Error::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Some("the target path does not exist — create it first with `mkdir -p`")
+            }
+            _ => None,
+        }
+    }
+
     /// Convert to a libc errno for FUSE responses.
     pub fn to_errno(&self) -> i32 {
         match self {
