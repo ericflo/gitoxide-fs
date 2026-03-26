@@ -1092,7 +1092,10 @@ pub struct GitFs {
 }
 
 /// Serialize a [`Duration`] as fractional seconds (f64) for JSON ergonomics.
-fn serialize_duration_secs<S: serde::Serializer>(d: &Duration, s: S) -> std::result::Result<S::Ok, S::Error> {
+fn serialize_duration_secs<S: serde::Serializer>(
+    d: &Duration,
+    s: S,
+) -> std::result::Result<S::Ok, S::Error> {
     s.serialize_f64(d.as_secs_f64())
 }
 

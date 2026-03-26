@@ -9,7 +9,7 @@
 //! - `GET /health/ready` — Returns 200 if the mount is active, 503 if shutting down.
 
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -40,7 +40,7 @@ impl HealthServer {
         // Bind early so we can report errors before spawning the thread.
         let listener = TcpListener::bind(&addr)?;
         let server = Server::from_listener(listener, None)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
 
         info!("Health server listening on http://{}", addr);
         Self::run(server, config)
@@ -56,7 +56,7 @@ impl HealthServer {
 
         let listener = UnixListener::bind(path)?;
         let server = Server::from_listener(listener, None)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
 
         info!("Health server listening on {}", path.display());
         Self::run(server, config)
@@ -113,18 +113,15 @@ impl HealthServer {
 
             match url.as_str() {
                 "/health" => {
-                    let status =
-                        build_status(&repo_path, &mount_point, read_only, started);
-                    let body = serde_json::to_string(&status).unwrap_or_else(|e| {
-                        format!(r#"{{"error":"{}"}}"#, e)
-                    });
+                    let status = build_status(&repo_path, &mount_point, read_only, started);
+                    let body = serde_json::to_string(&status)
+                        .unwrap_or_else(|e| format!(r#"{{"error":"{}"}}"#, e));
                     let resp = Response::from_string(body).with_header(json_header);
                     let _ = request.respond(resp);
                 }
                 "/health/ready" => {
                     // Check that the mount point still exists and is accessible
-                    let ready = mount_point.exists()
-                        && !shutdown.load(Ordering::Relaxed);
+                    let ready = mount_point.exists() && !shutdown.load(Ordering::Relaxed);
 
                     if ready {
                         let body = r#"{"status":"ready"}"#;
@@ -167,12 +164,12 @@ impl Drop for HealthServer {
 
 /// Build a [`MountStatus`] by reading live state from the repo on disk.
 fn build_status(
-    repo_path: &PathBuf,
-    mount_point: &PathBuf,
+    repo_path: &Path,
+    mount_point: &Path,
     read_only: bool,
     started: Instant,
 ) -> MountStatus {
-    let config = Config::new(repo_path.clone(), mount_point.clone());
+    let config = Config::new(repo_path.to_path_buf(), mount_point.to_path_buf());
     let (branch, total_commits) = match GitBackend::open(&config) {
         Ok(backend) => {
             let branch = backend.current_branch().unwrap_or_default();
@@ -186,8 +183,8 @@ fn build_status(
     };
 
     MountStatus {
-        mount_point: mount_point.clone(),
-        repo_path: repo_path.clone(),
+        mount_point: mount_point.to_path_buf(),
+        repo_path: repo_path.to_path_buf(),
         branch,
         pending_changes: 0,
         total_commits,
