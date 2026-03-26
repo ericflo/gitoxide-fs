@@ -16,7 +16,7 @@ use crate::error::{Error, Result};
 use crate::git::GitBackend;
 
 /// Information about an active fork.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ForkInfo {
     /// Unique identifier for this fork.
     pub id: String,
@@ -35,7 +35,7 @@ pub struct ForkInfo {
 }
 
 /// Result of a merge operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MergeResult {
     /// The merge commit ID.
     pub commit_id: String,
@@ -48,7 +48,7 @@ pub struct MergeResult {
 }
 
 /// A merge conflict for a specific file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MergeConflict {
     /// Path of the conflicting file.
     pub path: String,
@@ -63,7 +63,7 @@ pub struct MergeConflict {
 }
 
 /// Types of merge conflicts.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ConflictType {
     /// Both sides modified the same file.
     BothModified,

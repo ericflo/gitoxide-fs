@@ -20,6 +20,10 @@ use gitoxide_fs::health::HealthServer;
     version
 )]
 struct Cli {
+    /// Output results as JSON for programmatic consumption.
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -207,6 +211,8 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let json_output = cli.json;
+
     match cli.command {
         Commands::Mount {
             repo,
@@ -246,19 +252,32 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             // Initialize logging
             init_logging(&config.log_level);
 
-            println!(
-                "Mounting {} at {}",
-                config.repo_path.display(),
-                mountpoint.display()
-            );
+            if !json_output {
+                println!(
+                    "Mounting {} at {}",
+                    config.repo_path.display(),
+                    mountpoint.display()
+                );
+            }
 
             let gitfs = GitFs::new(config.clone())?;
             gitfs.mount(&mountpoint)?;
 
-            println!(
-                "Mounted successfully. Use 'gofs unmount {}' to unmount.",
-                mountpoint.display()
-            );
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "mount_point": mountpoint,
+                        "repo_path": config.repo_path,
+                        "status": "mounted"
+                    })
+                );
+            } else {
+                println!(
+                    "Mounted successfully. Use 'gofs unmount {}' to unmount.",
+                    mountpoint.display()
+                );
+            }
 
             // Start health server if requested
             let _health_server = if let Some(port) = health_port {
@@ -299,7 +318,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Unmount { mountpoint } => {
             GitFs::unmount(&mountpoint)?;
-            println!("Unmounted {}", mountpoint.display());
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "mount_point": mountpoint,
+                        "status": "unmounted"
+                    })
+                );
+            } else {
+                println!("Unmounted {}", mountpoint.display());
+            }
         }
 
         Commands::Status { path } => {
@@ -307,12 +336,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let gitfs = GitFs::new(config)?;
             let status = gitfs.status();
 
-            println!("Repository: {}", status.repo_path.display());
-            println!("Branch:     {}", status.branch);
-            println!("Commits:    {}", status.total_commits);
-            println!("Read-only:  {}", status.read_only);
-            if status.pending_changes > 0 {
-                println!("Pending:    {} changes", status.pending_changes);
+            if json_output {
+                println!("{}", serde_json::to_string(&status)?);
+            } else {
+                println!("Repository: {}", status.repo_path.display());
+                println!("Branch:     {}", status.branch);
+                println!("Commits:    {}", status.total_commits);
+                println!("Read-only:  {}", status.read_only);
+                if status.pending_changes > 0 {
+                    println!("Pending:    {} changes", status.pending_changes);
+                }
             }
         }
 
@@ -328,8 +361,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     manager.create_fork(&name)?
                 };
 
-                println!("Created fork '{}' on branch '{}'", info.id, info.branch);
-                println!("Fork point: {}", info.fork_point);
+                if json_output {
+                    println!("{}", serde_json::to_string(&info)?);
+                } else {
+                    println!("Created fork '{}' on branch '{}'", info.id, info.branch);
+                    println!("Fork point: {}", info.fork_point);
+                }
             }
 
             ForkCommands::List { repo } => {
@@ -338,7 +375,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 let manager = ForkManager::new(backend);
 
                 let forks = manager.list_forks()?;
-                if forks.is_empty() {
+                if json_output {
+                    println!("{}", serde_json::json!({ "forks": forks }));
+                } else if forks.is_empty() {
                     println!("No forks found.");
                 } else {
                     println!("{:<20} {:<25} {:<15} MERGED", "NAME", "BRANCH", "AHEAD");
@@ -368,15 +407,19 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
                 let result = manager.merge_fork_with_strategy(&name, config.fork.merge_strategy)?;
 
-                println!("Merged fork '{}'", name);
-                println!("Commit:        {}", result.commit_id);
-                println!("Files changed: {}", result.files_changed);
-                if result.had_conflicts {
-                    println!(
-                        "Conflicts:     {} (resolved with strategy '{}')",
-                        result.conflicts.len(),
-                        strategy
-                    );
+                if json_output {
+                    println!("{}", serde_json::to_string(&result)?);
+                } else {
+                    println!("Merged fork '{}'", name);
+                    println!("Commit:        {}", result.commit_id);
+                    println!("Files changed: {}", result.files_changed);
+                    if result.had_conflicts {
+                        println!(
+                            "Conflicts:     {} (resolved with strategy '{}')",
+                            result.conflicts.len(),
+                            strategy
+                        );
+                    }
                 }
             }
 
@@ -386,7 +429,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 let manager = ForkManager::new(backend);
 
                 manager.abandon_fork(&name)?;
-                println!("Abandoned fork '{}'", name);
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "fork": name,
+                            "status": "abandoned"
+                        })
+                    );
+                } else {
+                    println!("Abandoned fork '{}'", name);
+                }
             }
         },
 
@@ -394,14 +447,33 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let config = Config::new(repo, PathBuf::new());
             let gitfs = GitFs::new(config)?;
             let commit_id = gitfs.checkpoint(&name)?;
-            println!("Checkpoint '{}': {}", name, commit_id);
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "name": name,
+                        "commit_id": commit_id
+                    })
+                );
+            } else {
+                println!("Checkpoint '{}': {}", name, commit_id);
+            }
         }
 
         Commands::Rollback { commit, repo } => {
             let config = Config::new(repo, PathBuf::new());
             let gitfs = GitFs::new(config)?;
             gitfs.rollback(&commit)?;
-            println!("Rolled back to {}", commit);
+            if json_output {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "commit_id": commit
+                    })
+                );
+            } else {
+                println!("Rolled back to {}", commit);
+            }
         }
 
         Commands::Completions { shell } => {
