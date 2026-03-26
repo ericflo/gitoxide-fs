@@ -1091,8 +1091,13 @@ pub struct GitFs {
     backend: GitBackend,
 }
 
+/// Serialize a [`Duration`] as fractional seconds (f64) for JSON ergonomics.
+fn serialize_duration_secs<S: serde::Serializer>(d: &Duration, s: S) -> std::result::Result<S::Ok, S::Error> {
+    s.serialize_f64(d.as_secs_f64())
+}
+
 /// Status of a mounted filesystem.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MountStatus {
     /// The filesystem mount point.
     pub mount_point: PathBuf,
@@ -1104,7 +1109,8 @@ pub struct MountStatus {
     pub pending_changes: usize,
     /// Total commits in the repository.
     pub total_commits: usize,
-    /// Time since the filesystem was mounted.
+    /// Time since the filesystem was mounted, in seconds.
+    #[serde(serialize_with = "serialize_duration_secs")]
     pub uptime: Duration,
     /// Whether the filesystem is mounted read-only.
     pub read_only: bool,

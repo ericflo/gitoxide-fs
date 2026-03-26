@@ -66,6 +66,7 @@ pub mod error;
 pub mod fork;
 pub mod fs;
 pub mod git;
+pub mod health;
 
 /// Re-export key types for convenience.
 pub use config::Config;
