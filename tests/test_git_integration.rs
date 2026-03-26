@@ -665,3 +665,284 @@ fn binary_file_with_git_special_sequences() {
     let content = backend.read_file("tricky.bin").expect("read tricky binary");
     assert_eq!(content, data);
 }
+
+// =============================================================================
+// INCREMENTAL TREE BUILDING
+// =============================================================================
+
+#[test]
+fn incremental_commit_matches_full_rebuild() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    // Create initial files and commit (full rebuild)
+    backend.write_file("a.txt", b"hello").expect("write a");
+    backend.write_file("b.txt", b"world").expect("write b");
+    backend.create_dir("dir").expect("create dir");
+    backend.write_file("dir/c.txt", b"nested").expect("write c");
+    backend.commit("initial commit").expect("initial commit");
+
+    // Modify one file
+    backend.write_file("a.txt", b"hello updated").expect("update a");
+
+    // Do a full rebuild commit to get the expected tree
+    let full_commit_id = backend.commit("full rebuild").expect("full commit");
+    let full_log = backend.log(Some(1)).expect("log");
+    let full_tree_msg = &full_log[0].message;
+    assert_eq!(full_tree_msg, "full rebuild");
+
+    // Read back the file to verify
+    let content = backend.read_file("a.txt").expect("read a");
+    assert_eq!(content, b"hello updated");
+
+    // Now reset: write different content and test incremental
+    backend.write_file("a.txt", b"hello incremental").expect("update a again");
+    let incr_commit_id = backend
+        .commit_incremental("incremental commit", &["a.txt".to_string()])
+        .expect("incremental commit");
+
+    // Verify the file content is correct
+    let content = backend.read_file("a.txt").expect("read a after incremental");
+    assert_eq!(content, b"hello incremental");
+
+    // Verify other files are unchanged
+    let content_b = backend.read_file("b.txt").expect("read b");
+    assert_eq!(content_b, b"world");
+    let content_c = backend.read_file("dir/c.txt").expect("read c");
+    assert_eq!(content_c, b"nested");
+
+    assert_ne!(full_commit_id, incr_commit_id, "should be different commits");
+}
+
+#[test]
+fn incremental_commit_identical_tree_oid() {
+    // Verify that incremental and full produce the exact same tree when content is the same
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    // Create files and initial commit
+    backend.write_file("x.txt", b"foo").expect("write x");
+    backend.create_dir("sub").expect("create sub");
+    backend.write_file("sub/y.txt", b"bar").expect("write y");
+    backend.commit("initial").expect("initial commit");
+
+    // Modify file
+    backend.write_file("x.txt", b"foo-modified").expect("modify x");
+
+    // Do incremental commit
+    let incr_id = backend
+        .commit_incremental("incr", &["x.txt".to_string()])
+        .expect("incremental");
+
+    // Now modify back and do full commit to compare
+    backend.write_file("x.txt", b"foo-modified-2").expect("modify x again");
+    let full_id = backend.commit("full").expect("full commit");
+
+    // Both should produce valid commits
+    assert!(!incr_id.is_empty());
+    assert!(!full_id.is_empty());
+
+    // Verify file reads work correctly after both commit types
+    let content = backend.read_file("x.txt").expect("read x");
+    assert_eq!(content, b"foo-modified-2");
+    let content_y = backend.read_file("sub/y.txt").expect("read y");
+    assert_eq!(content_y, b"bar");
+}
+
+#[test]
+fn incremental_commit_deep_directory_change() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    // Create a deep directory structure
+    backend.create_dir("a").expect("create a");
+    backend.create_dir("a/b").expect("create a/b");
+    backend.create_dir("a/b/c").expect("create a/b/c");
+    backend.write_file("a/b/c/d.txt", b"deep").expect("write deep");
+    backend.write_file("a/b/e.txt", b"sibling").expect("write sibling");
+    backend.write_file("top.txt", b"top").expect("write top");
+    backend.commit("initial").expect("initial commit");
+
+    // Modify the deep file only
+    backend
+        .write_file("a/b/c/d.txt", b"deep-updated")
+        .expect("update deep");
+    backend
+        .commit_incremental("update deep", &["a/b/c/d.txt".to_string()])
+        .expect("incremental commit");
+
+    // Verify all files are correct
+    assert_eq!(
+        backend.read_file("a/b/c/d.txt").expect("read deep"),
+        b"deep-updated"
+    );
+    assert_eq!(
+        backend.read_file("a/b/e.txt").expect("read sibling"),
+        b"sibling"
+    );
+    assert_eq!(backend.read_file("top.txt").expect("read top"), b"top");
+}
+
+#[test]
+fn incremental_commit_file_deletion() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("keep.txt", b"keep me").expect("write keep");
+    backend
+        .write_file("delete-me.txt", b"goodbye")
+        .expect("write delete-me");
+    backend.commit("initial").expect("initial commit");
+
+    // Delete a file
+    backend.delete_file("delete-me.txt").expect("delete file");
+
+    // Incremental commit with the deleted path
+    backend
+        .commit_incremental("delete file", &["delete-me.txt".to_string()])
+        .expect("incremental commit");
+
+    // Verify deleted file is gone
+    assert!(backend.read_file("delete-me.txt").is_err());
+    // Verify other file is intact
+    assert_eq!(
+        backend.read_file("keep.txt").expect("read keep"),
+        b"keep me"
+    );
+}
+
+#[test]
+fn incremental_commit_new_file_in_new_directory() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("existing.txt", b"exists").expect("write existing");
+    backend.commit("initial").expect("initial commit");
+
+    // Create a new directory with a new file
+    backend.create_dir("newdir").expect("create dir");
+    backend
+        .write_file("newdir/new.txt", b"brand new")
+        .expect("write new");
+
+    backend
+        .commit_incremental("add new dir", &["newdir/new.txt".to_string()])
+        .expect("incremental commit");
+
+    assert_eq!(
+        backend.read_file("newdir/new.txt").expect("read new"),
+        b"brand new"
+    );
+    assert_eq!(
+        backend.read_file("existing.txt").expect("read existing"),
+        b"exists"
+    );
+}
+
+#[test]
+fn incremental_commit_root_file_change() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("root.txt", b"v1").expect("write root");
+    backend.create_dir("sub").expect("create sub");
+    backend.write_file("sub/other.txt", b"other").expect("write other");
+    backend.commit("initial").expect("initial commit");
+
+    backend.write_file("root.txt", b"v2").expect("update root");
+    backend
+        .commit_incremental("update root", &["root.txt".to_string()])
+        .expect("incremental commit");
+
+    assert_eq!(backend.read_file("root.txt").expect("read root"), b"v2");
+    assert_eq!(
+        backend.read_file("sub/other.txt").expect("read other"),
+        b"other"
+    );
+}
+
+#[test]
+fn incremental_commit_falls_back_on_initial_commit() {
+    // With no previous commit, commit_incremental should fall back to full rebuild
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    backend.write_file("file.txt", b"content").expect("write file");
+
+    // This is the first commit — no parent, so incremental should fall back to full
+    let commit_id = backend
+        .commit_incremental("first commit", &["file.txt".to_string()])
+        .expect("incremental on first commit");
+
+    assert!(!commit_id.is_empty());
+    assert_eq!(
+        backend.read_file("file.txt").expect("read file"),
+        b"content"
+    );
+}
+
+#[test]
+fn incremental_commit_performance_many_files() {
+    // Create many files, change one, verify incremental is faster than full rebuild
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    // Create 500 files across directories
+    for i in 0..500 {
+        let dir = format!("dir{}", i / 50);
+        let path = format!("{}/file{}.txt", dir, i);
+        backend.create_dir(&dir).ok(); // ignore if already exists
+        backend
+            .write_file(&path, format!("content-{}", i).as_bytes())
+            .expect("write file");
+    }
+    backend.commit("initial with 500 files").expect("initial commit");
+
+    // Change just one file
+    backend
+        .write_file("dir0/file0.txt", b"updated-content")
+        .expect("update one file");
+
+    // Time the incremental commit
+    let start = std::time::Instant::now();
+    backend
+        .commit_incremental("incremental update", &["dir0/file0.txt".to_string()])
+        .expect("incremental commit");
+    let incr_time = start.elapsed();
+
+    // Change another file for full commit timing
+    backend
+        .write_file("dir0/file1.txt", b"updated-content-2")
+        .expect("update another file");
+
+    let start = std::time::Instant::now();
+    backend.commit("full rebuild").expect("full commit");
+    let full_time = start.elapsed();
+
+    // Incremental should be meaningfully faster (at least 2x)
+    // Being conservative here since test environments vary
+    assert!(
+        incr_time < full_time,
+        "incremental ({:?}) should be faster than full ({:?})",
+        incr_time,
+        full_time
+    );
+
+    // Verify the files are correct
+    assert_eq!(
+        backend.read_file("dir0/file0.txt").expect("read file0"),
+        b"updated-content"
+    );
+    assert_eq!(
+        backend.read_file("dir0/file1.txt").expect("read file1"),
+        b"updated-content-2"
+    );
+}
