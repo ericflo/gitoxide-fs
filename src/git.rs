@@ -5,13 +5,13 @@
 //!
 //! The central type is [`GitBackend`], which manages a single git repository.
 
+use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, RwLock};
 use std::time::SystemTime;
 
 use gix::bstr::BString;
@@ -533,10 +533,7 @@ impl GitBackend {
 
         // Auto-commit logic
         if self.config.commit.auto_commit {
-            let mut dirty = self
-                .dirty_files
-                .lock()
-                .map_err(|_| Error::LockPoisoned("dirty_files".into()))?;
+            let mut dirty = self.dirty_files.lock();
             dirty.push(path.to_string());
             let batch_size = self.config.commit.max_batch_size;
             let debounce_ms = self.config.commit.debounce_ms;
@@ -562,10 +559,7 @@ impl GitBackend {
 
     /// Flush any pending dirty files as a commit (for debounce trigger).
     pub fn flush_pending_auto_commit(&self) -> Result<Option<String>> {
-        let mut dirty = self
-            .dirty_files
-            .lock()
-            .map_err(|_| Error::LockPoisoned("dirty_files".into()))?;
+        let mut dirty = self.dirty_files.lock();
         if dirty.is_empty() {
             return Ok(None);
         }
@@ -732,11 +726,14 @@ impl GitBackend {
         let mut entries = Vec::new();
         for entry in fs::read_dir(&full)? {
             let entry = entry?;
-            let name = entry.file_name().to_string_lossy().to_string();
-            // Filter internal files
-            if name == ".git" || name == ".gitkeep" {
+            let name_os = entry.file_name();
+            // Filter internal files using OsStr comparison (avoids allocation)
+            if name_os == ".git" || name_os == ".gitkeep" {
                 continue;
             }
+            let name = name_os
+                .into_string()
+                .unwrap_or_else(|os| os.to_string_lossy().into_owned());
             let ft = entry.file_type()?;
             let metadata = entry.metadata()?;
             let file_type = if ft.is_dir() {
@@ -902,10 +899,7 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let store = self
-            .xattrs
-            .read()
-            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
+        let store = self.xattrs.read();
         Ok(store.get(path).and_then(|attrs| attrs.get(name)).cloned())
     }
 
@@ -916,10 +910,7 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let mut store = self
-            .xattrs
-            .write()
-            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
+        let mut store = self.xattrs.write();
         store
             .entry(path.to_string())
             .or_default()
@@ -934,10 +925,7 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let store = self
-            .xattrs
-            .read()
-            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
+        let store = self.xattrs.read();
         Ok(store
             .get(path)
             .map(|attrs| attrs.keys().cloned().collect())
@@ -951,10 +939,7 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let mut store = self
-            .xattrs
-            .write()
-            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
+        let mut store = self.xattrs.write();
         if let Some(attrs) = store.get_mut(path) {
             if attrs.remove(name).is_none() {
                 return Err(Error::NotFound(format!(
@@ -993,11 +978,12 @@ impl GitBackend {
                 Err(_) => continue, // Entry vanished during concurrent modification
             };
             let name_os = entry.file_name();
-            let name = name_os.to_string_lossy().to_string();
-
-            if name == ".git" {
+            if name_os == ".git" {
                 continue;
             }
+            let name = name_os
+                .into_string()
+                .unwrap_or_else(|os| os.to_string_lossy().into_owned());
 
             let ft = match entry.file_type() {
                 Ok(ft) => ft,
@@ -1102,7 +1088,7 @@ impl GitBackend {
         &self,
         repo: &gix::Repository,
         rel_dir: &str,
-        dirty_paths: &HashSet<String>,
+        dirty_paths: &HashSet<&str>,
         prev_tree_id: ObjectId,
     ) -> Result<ObjectId> {
         let abs_dir = self.abs_path(rel_dir);
@@ -1126,7 +1112,7 @@ impl GitBackend {
             } else if rel_dir.is_empty() {
                 // Top-level: paths without '/' are direct children
                 if !dp.contains('/') {
-                    dirty_children.insert(dp.clone());
+                    dirty_children.insert((*dp).to_string());
                 } else if let Some(slash) = dp.find('/') {
                     dirty_children.insert(dp[..slash].to_string());
                 }
@@ -1165,11 +1151,12 @@ impl GitBackend {
                 Err(_) => continue, // Entry vanished during concurrent modification
             };
             let name_os = entry.file_name();
-            let name = name_os.to_string_lossy().to_string();
-
-            if name == ".git" {
+            if name_os == ".git" {
                 continue;
             }
+            let name = name_os
+                .into_string()
+                .unwrap_or_else(|os| os.to_string_lossy().into_owned());
 
             let ft = match entry.file_type() {
                 Ok(ft) => ft,
@@ -1372,10 +1359,7 @@ impl GitBackend {
     /// # }
     /// ```
     pub fn commit(&self, message: &str) -> Result<String> {
-        let repo = self
-            .repo
-            .lock()
-            .map_err(|_| Error::LockPoisoned("repo".into()))?;
+        let repo = self.repo.lock();
         let tree_id = self.build_tree_from_workdir(&repo, "")?;
         let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
         let commit_id = self.write_commit_inner(&repo, tree_id, &parents, message)?;
@@ -1415,14 +1399,11 @@ impl GitBackend {
     /// # }
     /// ```
     pub fn commit_incremental(&self, message: &str, dirty_paths: &[String]) -> Result<String> {
-        let repo = self
-            .repo
-            .lock()
-            .map_err(|_| Error::LockPoisoned("repo".into()))?;
+        let repo = self.repo.lock();
         let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
 
         let tree_id = if !parents.is_empty() && !dirty_paths.is_empty() {
-            let dirty_set: HashSet<String> = dirty_paths.iter().cloned().collect();
+            let dirty_set: HashSet<&str> = dirty_paths.iter().map(|s| s.as_str()).collect();
             let parent_obj = repo
                 .find_object(parents[0])
                 .map_err(|e| Error::Git(e.to_string()))?;
@@ -1481,17 +1462,18 @@ impl GitBackend {
             offset: 0,
         };
 
-        let author = gix::actor::Signature {
-            name: BString::from(self.config.commit.author_name.as_str()),
-            email: BString::from(self.config.commit.author_email.as_str()),
-            time,
-        };
+        let name = BString::from(self.config.commit.author_name.as_str());
+        let email = BString::from(self.config.commit.author_email.as_str());
 
         let commit = OwnedCommit {
             tree: tree_id,
             parents: parents.iter().copied().collect(),
-            author: author.clone(),
-            committer: author,
+            author: gix::actor::Signature {
+                name: name.clone(),
+                email: email.clone(),
+                time,
+            },
+            committer: gix::actor::Signature { name, email, time },
             encoding: None,
             message: BString::from(message),
             extra_headers: vec![],
@@ -1533,10 +1515,7 @@ impl GitBackend {
             None => return Ok(Vec::new()),
         };
 
-        let repo = self
-            .repo
-            .lock()
-            .map_err(|_| Error::LockPoisoned("repo".into()))?;
+        let repo = self.repo.lock();
         let mut result = Vec::new();
         let mut current = Some(head_oid);
 
@@ -1619,10 +1598,7 @@ impl GitBackend {
         let to_oid = ObjectId::from_hex(to.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit ID '{}': {}", to, e)))?;
 
-        let repo = self
-            .repo
-            .lock()
-            .map_err(|_| Error::LockPoisoned("repo".into()))?;
+        let repo = self.repo.lock();
         let from_tree_id = self.get_commit_tree_id_inner(&repo, from_oid)?;
         let to_tree_id = self.get_commit_tree_id_inner(&repo, to_oid)?;
 
@@ -2000,10 +1976,7 @@ impl GitBackend {
     pub fn tree_at_commit(&self, commit_hex: &str) -> Result<HashMap<String, Vec<u8>>> {
         let oid = ObjectId::from_hex(commit_hex.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit ID '{}': {}", commit_hex, e)))?;
-        let repo = self
-            .repo
-            .lock()
-            .map_err(|_| Error::LockPoisoned("repo".into()))?;
+        let repo = self.repo.lock();
         let tree_id = self.get_commit_tree_id_inner(&repo, oid)?;
         let flat = self.flatten_tree_inner(&repo, tree_id, "")?;
         let mut result = HashMap::new();
@@ -2027,10 +2000,7 @@ impl GitBackend {
             .map_err(|e| Error::Git(format!("invalid parent1: {}", e)))?;
         let p2 = ObjectId::from_hex(parent2_hex.as_bytes())
             .map_err(|e| Error::Git(format!("invalid parent2: {}", e)))?;
-        let repo = self
-            .repo
-            .lock()
-            .map_err(|_| Error::LockPoisoned("repo".into()))?;
+        let repo = self.repo.lock();
         let tree_id = self.build_tree_from_workdir(&repo, "")?;
         let commit_id = self.write_commit_inner(&repo, tree_id, &[p1, p2], message)?;
         drop(repo);
@@ -2045,10 +2015,7 @@ impl GitBackend {
         let oid = ObjectId::from_hex(commit_id.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit ID: {}", e)))?;
 
-        let repo = self
-            .repo
-            .lock()
-            .map_err(|_| Error::LockPoisoned("repo".into()))?;
+        let repo = self.repo.lock();
         let obj = repo
             .find_object(oid)
             .map_err(|e| Error::Git(format!("commit not found: {}", e)))?;
