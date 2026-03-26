@@ -1,81 +1,90 @@
-//! Basic mount example for gitoxide-fs.
+//! Basic example demonstrating the gitoxide-fs library API.
 //!
-//! Demonstrates how to programmatically configure and mount a git-backed
-//! FUSE filesystem. Every file written to the mount point is automatically
-//! committed to the underlying git repository.
-//!
-//! # Prerequisites
-//!
-//! - FUSE 3 must be installed (`libfuse3-dev` on Debian/Ubuntu)
-//! - The target repo must already be initialized with at least one commit
+//! Creates a temporary git repository, writes files, commits, reads them back,
+//! and shows the git log — all using the library directly, no FUSE required.
 //!
 //! # Usage
 //!
 //! ```bash
-//! # Initialize a test repo
-//! mkdir /tmp/my-repo && cd /tmp/my-repo && git init && \
-//!   echo "init" > README.md && git add . && git commit -m "init"
-//!
-//! # Create a mount point
-//! mkdir /tmp/workspace
-//!
-//! # Run this example
-//! cargo run --example basic_mount -- /tmp/my-repo /tmp/workspace
+//! cargo run --example basic_mount
 //! ```
 
+use gitoxide_fs::{Config, GitBackend};
 use std::path::PathBuf;
 
-use gitoxide_fs::Config;
-
 fn main() -> anyhow::Result<()> {
-    // Parse arguments: <repo-path> <mount-point>
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: {} <repo-path> <mount-point>", args[0]);
-        eprintln!();
-        eprintln!("Mount a git repository as a FUSE filesystem.");
-        eprintln!("Every file change is automatically committed.");
-        std::process::exit(1);
+    println!("gitoxide-fs basic library API example");
+    println!("=====================================\n");
+
+    // Create a temporary directory for our repo.
+    let tmp = tempfile::tempdir()?;
+    let repo_path = tmp.path().to_path_buf();
+    println!("Repository: {}\n", repo_path.display());
+
+    // Initialize a GitBackend — this creates a new git repo.
+    let config = Config::new(repo_path.clone(), PathBuf::new());
+    let backend = GitBackend::open(&config)?;
+    println!("✓ Git repository initialized");
+
+    // Write some files.
+    backend.write_file("README.md", b"# My Project\n\nBuilt with gitoxide-fs.\n")?;
+    backend.write_file("src/main.rs", b"fn main() {\n    println!(\"hello\");\n}\n")?;
+    backend.write_file(
+        "src/lib.rs",
+        b"pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )?;
+    println!("✓ Wrote 3 files: README.md, src/main.rs, src/lib.rs");
+
+    // Create a directory.
+    backend.create_dir("tests")?;
+    backend.write_file(
+        "tests/test_lib.rs",
+        b"#[test]\nfn it_works() { assert_eq!(2 + 2, 4); }\n",
+    )?;
+    println!("✓ Created tests/ directory with test_lib.rs");
+
+    // Commit everything.
+    let commit_id = backend.commit("Initial commit: project scaffold")?;
+    println!("✓ Committed: {}\n", &commit_id[..12]);
+
+    // Read files back.
+    let readme = backend.read_file("README.md")?;
+    println!("--- README.md ---");
+    println!("{}", String::from_utf8_lossy(&readme));
+
+    // List directory contents.
+    let root_entries = backend.list_dir("")?;
+    println!("Root directory contents:");
+    for entry in &root_entries {
+        let kind = match entry.file_type {
+            gitoxide_fs::git::FileType::Directory => "dir ",
+            gitoxide_fs::git::FileType::RegularFile => "file",
+            gitoxide_fs::git::FileType::Symlink => "link",
+        };
+        println!("  [{kind}] {}", entry.name);
     }
 
-    let repo_path = PathBuf::from(&args[1]);
-    let mount_point = PathBuf::from(&args[2]);
+    // Make another change and commit.
+    backend.write_file(
+        "README.md",
+        b"# My Project\n\nBuilt with gitoxide-fs.\n\n## Getting Started\n\nRun `cargo run`.\n",
+    )?;
+    let commit2 = backend.commit("docs: add getting started section")?;
+    println!("\n✓ Updated README.md and committed: {}", &commit2[..12]);
 
-    // Create a configuration with sensible defaults.
-    // The Config::new constructor sets:
-    //   - auto_commit: true
-    //   - debounce_ms: 500 (batch rapid writes)
-    //   - max_batch_size: 100
-    //   - read_only: false
-    let config = Config::new(repo_path.clone(), mount_point.clone());
+    // Show git log.
+    let log = backend.log(Some(10))?;
+    println!("\n--- Git Log ---");
+    for entry in &log {
+        println!("  {} {}", &entry.id[..12], entry.message.trim());
+    }
 
-    println!("gitoxide-fs basic mount example");
-    println!("  Repository: {}", repo_path.display());
-    println!("  Mount point: {}", mount_point.display());
-    println!("  Auto-commit: {}", config.commit.auto_commit);
-    println!("  Debounce: {}ms", config.commit.debounce_ms);
-    println!();
-    println!(
-        "Files written to {} will be auto-committed to git.",
-        mount_point.display()
-    );
-    println!("Press Ctrl+C to unmount and exit.");
+    // Show repo info.
+    let branch = backend.current_branch()?;
+    println!("\nCurrent branch: {branch}");
+    println!("Total commits: {}", log.len());
 
-    // In a real application, you would now create a GitBackend and GitFs,
-    // then call fuser::mount2() to start serving the filesystem.
-    //
-    // The CLI (`gofs mount`) handles all of this — this example shows
-    // the configuration layer that underpins it.
-    //
-    // See the gofs source (src/main.rs) for the full mount implementation.
-
-    println!();
-    println!("Configuration object created successfully.");
-    println!(
-        "To actually mount, use the CLI: gofs mount {} {}",
-        repo_path.display(),
-        mount_point.display()
-    );
+    println!("\nDone! The library works without FUSE — no mounting required.");
 
     Ok(())
 }
