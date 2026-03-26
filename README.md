@@ -37,8 +37,33 @@ AI agents are writing more and more code autonomously. But tracking what they do
 
 **Prerequisites:** FUSE 3 — `sudo apt install libfuse3-dev fuse3` (Debian/Ubuntu), `sudo dnf install fuse3-devel` (Fedora), `sudo pacman -S fuse3` (Arch), or [macFUSE](https://osxfuse.github.io/) on macOS.
 
+### Pre-built binaries
+
+Download the latest release from the [releases page](https://github.com/ericflo/gitoxide-fs/releases/latest):
+
 ```bash
-# From source
+# Linux x86_64
+curl -fsSL https://github.com/ericflo/gitoxide-fs/releases/latest/download/gofs-linux-x86_64.tar.gz | tar xz
+sudo mv gofs /usr/local/bin/
+
+# Linux aarch64
+curl -fsSL https://github.com/ericflo/gitoxide-fs/releases/latest/download/gofs-linux-aarch64.tar.gz | tar xz
+sudo mv gofs /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -fsSL https://github.com/ericflo/gitoxide-fs/releases/latest/download/gofs-macos-aarch64.tar.gz | tar xz
+sudo mv gofs /usr/local/bin/
+
+# macOS (Intel)
+curl -fsSL https://github.com/ericflo/gitoxide-fs/releases/latest/download/gofs-macos-x86_64.tar.gz | tar xz
+sudo mv gofs /usr/local/bin/
+```
+
+The release archive also includes shell completions (bash/zsh/fish) and a man page.
+
+### From source
+
+```bash
 git clone https://github.com/ericflo/gitoxide-fs.git
 cd gitoxide-fs
 cargo install --path .
