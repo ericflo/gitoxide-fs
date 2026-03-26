@@ -222,21 +222,17 @@ fn concurrent_commits_from_different_threads() {
     for i in 0..5 {
         let filename = format!("commit_test_{}.txt", i);
         let content = backend.read_file(&filename).unwrap_or_else(|e| {
-            panic!("file {} should exist after concurrent commits: {}", filename, e)
+            panic!(
+                "file {} should exist after concurrent commits: {}",
+                filename, e
+            )
         });
-        assert_eq!(
-            content, b"data",
-            "file {} has wrong content",
-            filename
-        );
+        assert_eq!(content, b"data", "file {} has wrong content", filename);
     }
 
     // There should be at least 1 commit (commits can coalesce under concurrency)
     let log = backend.log(Some(10)).expect("get log");
-    assert!(
-        !log.is_empty(),
-        "expected at least 1 commit, got 0"
-    );
+    assert!(!log.is_empty(), "expected at least 1 commit, got 0");
 }
 
 // =============================================================================
