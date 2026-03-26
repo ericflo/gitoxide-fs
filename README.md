@@ -43,8 +43,7 @@ git clone https://github.com/ericflo/gitoxide-fs.git
 cd gitoxide-fs
 cargo install --path .
 
-# Or from crates.io (coming soon)
-cargo install gitoxide-fs
+# Binary will be installed as `gofs`
 ```
 
 ## Quick start
@@ -257,7 +256,7 @@ See the [`examples/`](examples/) directory for complete runnable examples:
 - **Pure Rust** — built on [gitoxide](https://github.com/Byron/gitoxide) (`gix`) and [fuser](https://github.com/cberner/fuser). No shelling out to `git`.
 - **Full POSIX** — files, directories, symlinks, hard links, xattrs, permissions.
 - **.git hidden** — the `.git` directory is invisible in the mounted filesystem.
-- **288 tests** across 12 suites: filesystem operations, git integration, fork/merge, edge cases, error recovery, agentic workflows, concurrency, CLI, and more.
+- **349 tests** across 13 suites: filesystem operations, git integration, fork/merge, edge cases, error recovery, agentic workflows, concurrency, CLI, mount integration, and more.
 
 ## Development
 
