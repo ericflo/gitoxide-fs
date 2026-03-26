@@ -457,3 +457,75 @@ fn unmount_nonexistent_path() {
     let result = GitFs::unmount(std::path::Path::new("/tmp/not_a_mount"));
     assert!(result.is_err(), "unmounting non-mount path should error");
 }
+
+// =============================================================================
+// FLUSH PENDING AUTO-COMMITS (graceful unmount behavior)
+// =============================================================================
+
+#[test]
+fn flush_pending_auto_commit_captures_debounced_writes() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.commit.auto_commit = true;
+    config.commit.debounce_ms = 60000; // Very long debounce — writes won't auto-commit
+    config.commit.max_batch_size = 1000; // Large batch — won't trigger batch commit
+
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // Write files — they should accumulate in dirty_files without committing
+    backend
+        .write_file("pending1.txt", b"will be flushed")
+        .expect("write");
+    backend
+        .write_file("pending2.txt", b"also flushed")
+        .expect("write");
+
+    // Verify no commit happened yet (debounce is long, batch not full)
+    let log_before = backend.log(None).expect("get log");
+    let has_pending = log_before
+        .iter()
+        .any(|c| c.message.contains("pending1.txt"));
+    assert!(
+        !has_pending,
+        "debounced writes should not commit immediately"
+    );
+
+    // Flush — simulates what destroy() now does
+    let result = backend
+        .flush_pending_auto_commit()
+        .expect("flush should succeed");
+    assert!(
+        result.is_some(),
+        "flush should return a commit hash when dirty files exist"
+    );
+
+    // Verify the commit captured both files
+    let log_after = backend.log(Some(1)).expect("get log");
+    assert!(!log_after.is_empty(), "flush should create a commit");
+    let msg = &log_after[0].message;
+    assert!(
+        msg.contains("pending1.txt") && msg.contains("pending2.txt"),
+        "flush commit should mention both pending files, got: {msg}"
+    );
+}
+
+#[test]
+fn flush_pending_auto_commit_noop_when_empty() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.commit.auto_commit = true;
+    config.commit.debounce_ms = 60000;
+
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // Flush with no pending writes should return None
+    let result = backend
+        .flush_pending_auto_commit()
+        .expect("flush should succeed");
+    assert!(
+        result.is_none(),
+        "flush with no dirty files should return None"
+    );
+}
