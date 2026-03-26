@@ -986,7 +986,9 @@ fn config_ignore_patterns_match_node_modules() {
 
     // Default config includes node_modules
     assert!(
-        backend.is_ignored("node_modules/package.json").expect("check"),
+        backend
+            .is_ignored("node_modules/package.json")
+            .expect("check"),
         "node_modules/ contents should be ignored by default config"
     );
     assert!(
@@ -1001,7 +1003,9 @@ fn config_ignore_patterns_match_pycache() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    assert!(backend.is_ignored("__pycache__/module.cpython-311.pyc").expect("check"));
+    assert!(backend
+        .is_ignored("__pycache__/module.cpython-311.pyc")
+        .expect("check"));
     assert!(backend.is_ignored("__pycache__").expect("check"));
 }
 
@@ -1074,7 +1078,9 @@ fn ignored_files_still_readable() {
         .expect("write ignored file");
 
     // File should still be readable even though it's ignored
-    let content = backend.read_file("node_modules/foo.js").expect("read ignored file");
+    let content = backend
+        .read_file("node_modules/foo.js")
+        .expect("read ignored file");
     assert_eq!(content, b"module.exports = {};");
 }
 

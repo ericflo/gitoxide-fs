@@ -1759,8 +1759,7 @@ impl GitBackend {
                 if path == pat
                     || path.starts_with(&format!("{}/", pat))
                     || path.contains(&format!("/{}/", pat))
-                    || path.contains(&format!("/{}", pat))
-                        && path.ends_with(pat)
+                    || path.contains(&format!("/{}", pat)) && path.ends_with(pat)
                 {
                     return true;
                 }
