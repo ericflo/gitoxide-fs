@@ -26,7 +26,7 @@ jobs:
             archive: gofs-linux-aarch64.tar.gz
             cross: true
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-13
             archive: gofs-macos-x86_64.tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -49,7 +49,8 @@ jobs:
 
       - name: Install macFUSE (macOS)
         if: runner.os == 'macOS'
-        run: brew install macfuse
+        run: |
+          brew install --cask macfuse
 
       - uses: actions/cache@v4
         with:
@@ -63,6 +64,9 @@ jobs:
 
       - name: Build release binary (native)
         if: '!matrix.cross'
+        env:
+          # macFUSE installs pkg-config files here
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build release binary (cross)
@@ -88,7 +92,7 @@ jobs:
           ./target/${{ matrix.target }}/release/gofs completions fish > dist/completions/gofs.fish
           ./target/${{ matrix.target }}/release/gofs manpage > dist/gofs.1
 
-      - name: Generate shell completions and man page (cross — use x86_64 build)
+      - name: Generate shell completions and man page (cross — use native build)
         if: matrix.cross
         run: |
           # Build a native binary just for generating completions
