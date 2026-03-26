@@ -78,6 +78,10 @@ pub enum Error {
     /// Attempted a cross-device link (maps to `EXDEV`).
     #[error("Cross-device link")]
     CrossDeviceLink,
+
+    /// An internal lock (Mutex/RwLock) was poisoned by a panicking thread.
+    #[error("Lock poisoned: {0}")]
+    LockPoisoned(String),
 }
 
 /// Convenience alias used throughout the crate.

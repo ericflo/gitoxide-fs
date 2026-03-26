@@ -1066,7 +1066,9 @@ impl GitFs {
 
         // Prevent double-mounting the same repo
         {
-            let mounts = active_mounts().lock().unwrap();
+            let mounts = active_mounts()
+                .lock()
+                .map_err(|_| Error::LockPoisoned("active_mounts".into()))?;
             if mounts.values().any(|r| r == &repo_path) {
                 return Err(Error::Fuse(format!(
                     "repository {} is already mounted",
@@ -1088,7 +1090,10 @@ impl GitFs {
             .map_err(|e| Error::Fuse(format!("mount failed: {}", e)))?;
 
         // Track mount_point -> repo_path so unmount can clean up
-        active_mounts().lock().unwrap().insert(mount_abs, repo_path);
+        active_mounts()
+            .lock()
+            .map_err(|_| Error::LockPoisoned("active_mounts".into()))?
+            .insert(mount_abs, repo_path);
 
         // Keep the session alive — it will be cleaned up on unmount or process exit.
         // The AutoUnmount option ensures the kernel unmounts if the process dies.
@@ -1103,7 +1108,9 @@ impl GitFs {
         let mount_abs = std::fs::canonicalize(mount_point).map_err(Error::Io)?;
 
         {
-            let mounts = active_mounts().lock().unwrap();
+            let mounts = active_mounts()
+                .lock()
+                .map_err(|_| Error::LockPoisoned("active_mounts".into()))?;
             if mounts.values().any(|r| r == &repo_path) {
                 return Err(Error::Fuse(format!(
                     "repository {} is already mounted",
@@ -1131,7 +1138,10 @@ impl GitFs {
         let session = fuser::spawn_mount2(handler, mount_point, &options)
             .map_err(|e| Error::Fuse(format!("mount failed: {}", e)))?;
 
-        active_mounts().lock().unwrap().insert(mount_abs, repo_path);
+        active_mounts()
+            .lock()
+            .map_err(|_| Error::LockPoisoned("active_mounts".into()))?
+            .insert(mount_abs, repo_path);
         std::mem::forget(session);
 
         Ok(())
@@ -1159,12 +1169,15 @@ impl GitFs {
         if output.status.success() {
             // Clean up mount tracking so the repo can be remounted
             if let Ok(mount_abs) = std::fs::canonicalize(mount_point) {
-                active_mounts().lock().unwrap().remove(&mount_abs);
+                active_mounts()
+                    .lock()
+                    .map_err(|_| Error::LockPoisoned("active_mounts".into()))?
+                    .remove(&mount_abs);
             } else {
                 // Mount point may no longer exist after unmount; try raw path
                 active_mounts()
                     .lock()
-                    .unwrap()
+                    .map_err(|_| Error::LockPoisoned("active_mounts".into()))?
                     .remove(&mount_point.to_path_buf());
             }
             Ok(())

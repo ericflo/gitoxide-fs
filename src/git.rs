@@ -397,7 +397,10 @@ impl GitBackend {
 
         // Auto-commit logic
         if self.config.commit.auto_commit {
-            let mut dirty = self.dirty_files.lock().unwrap();
+            let mut dirty = self
+                .dirty_files
+                .lock()
+                .map_err(|_| Error::LockPoisoned("dirty_files".into()))?;
             dirty.push(path.to_string());
             let batch_size = self.config.commit.max_batch_size;
             let debounce_ms = self.config.commit.debounce_ms;
@@ -423,7 +426,10 @@ impl GitBackend {
 
     /// Flush any pending dirty files as a commit (for debounce trigger).
     pub fn flush_pending_auto_commit(&self) -> Result<Option<String>> {
-        let mut dirty = self.dirty_files.lock().unwrap();
+        let mut dirty = self
+            .dirty_files
+            .lock()
+            .map_err(|_| Error::LockPoisoned("dirty_files".into()))?;
         if dirty.is_empty() {
             return Ok(None);
         }
@@ -710,7 +716,10 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let store = self.xattrs.read().unwrap();
+        let store = self
+            .xattrs
+            .read()
+            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
         Ok(store.get(path).and_then(|attrs| attrs.get(name)).cloned())
     }
 
@@ -721,7 +730,10 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let mut store = self.xattrs.write().unwrap();
+        let mut store = self
+            .xattrs
+            .write()
+            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
         store
             .entry(path.to_string())
             .or_default()
@@ -736,7 +748,10 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let store = self.xattrs.read().unwrap();
+        let store = self
+            .xattrs
+            .read()
+            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
         Ok(store
             .get(path)
             .map(|attrs| attrs.keys().cloned().collect())
@@ -750,7 +765,10 @@ impl GitBackend {
         if !full.exists() {
             return Err(Error::NotFound(path.to_string()));
         }
-        let mut store = self.xattrs.write().unwrap();
+        let mut store = self
+            .xattrs
+            .write()
+            .map_err(|_| Error::LockPoisoned("xattrs".into()))?;
         if let Some(attrs) = store.get_mut(path) {
             if attrs.remove(name).is_none() {
                 return Err(Error::NotFound(format!(
@@ -1112,7 +1130,10 @@ impl GitBackend {
     /// For incremental commits (when you know which files changed), use
     /// `commit_incremental()` instead.
     pub fn commit(&self, message: &str) -> Result<String> {
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| Error::LockPoisoned("repo".into()))?;
         let tree_id = self.build_tree_from_workdir(&repo, "")?;
         let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
         let commit_id = self.write_commit_inner(&repo, tree_id, &parents, message)?;
@@ -1127,7 +1148,10 @@ impl GitBackend {
     /// OIDs from the previous commit. Falls back to full rebuild when there is no
     /// previous commit (initial commit).
     pub fn commit_incremental(&self, message: &str, dirty_paths: &[String]) -> Result<String> {
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| Error::LockPoisoned("repo".into()))?;
         let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
 
         let tree_id = if !parents.is_empty() && !dirty_paths.is_empty() {
@@ -1220,7 +1244,10 @@ impl GitBackend {
             None => return Ok(Vec::new()),
         };
 
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| Error::LockPoisoned("repo".into()))?;
         let mut result = Vec::new();
         let mut current = Some(head_oid);
 
@@ -1282,7 +1309,10 @@ impl GitBackend {
         let to_oid = ObjectId::from_hex(to.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit ID '{}': {}", to, e)))?;
 
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| Error::LockPoisoned("repo".into()))?;
         let from_tree_id = self.get_commit_tree_id_inner(&repo, from_oid)?;
         let to_tree_id = self.get_commit_tree_id_inner(&repo, to_oid)?;
 
@@ -1556,7 +1586,10 @@ impl GitBackend {
     pub fn tree_at_commit(&self, commit_hex: &str) -> Result<HashMap<String, Vec<u8>>> {
         let oid = ObjectId::from_hex(commit_hex.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit ID '{}': {}", commit_hex, e)))?;
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| Error::LockPoisoned("repo".into()))?;
         let tree_id = self.get_commit_tree_id_inner(&repo, oid)?;
         let flat = self.flatten_tree_inner(&repo, tree_id, "")?;
         let mut result = HashMap::new();
@@ -1580,7 +1613,10 @@ impl GitBackend {
             .map_err(|e| Error::Git(format!("invalid parent1: {}", e)))?;
         let p2 = ObjectId::from_hex(parent2_hex.as_bytes())
             .map_err(|e| Error::Git(format!("invalid parent2: {}", e)))?;
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| Error::LockPoisoned("repo".into()))?;
         let tree_id = self.build_tree_from_workdir(&repo, "")?;
         let commit_id = self.write_commit_inner(&repo, tree_id, &[p1, p2], message)?;
         drop(repo);
@@ -1595,7 +1631,10 @@ impl GitBackend {
         let oid = ObjectId::from_hex(commit_id.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit ID: {}", e)))?;
 
-        let repo = self.repo.lock().unwrap();
+        let repo = self
+            .repo
+            .lock()
+            .map_err(|_| Error::LockPoisoned("repo".into()))?;
         let obj = repo
             .find_object(oid)
             .map_err(|e| Error::Git(format!("commit not found: {}", e)))?;
