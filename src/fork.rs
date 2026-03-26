@@ -92,6 +92,29 @@ struct ForkMetadata {
 ///
 /// Fork metadata is persisted to `.gitoxide-fs/forks.json` in the repository
 /// root directory, ensuring fork state survives across process restarts.
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> gitoxide_fs::Result<()> {
+/// let dir = tempfile::tempdir().unwrap();
+/// let config = gitoxide_fs::Config::new(
+///     dir.path().to_path_buf(),
+///     std::path::PathBuf::new(),
+/// );
+/// let backend = gitoxide_fs::GitBackend::open(&config)?;
+/// backend.write_file("main.txt", b"trunk")?;
+/// backend.commit("initial")?;
+///
+/// let fm = gitoxide_fs::ForkManager::new(backend);
+/// let fork = fm.create_fork("experiment")?;
+/// assert_eq!(fork.branch, "experiment");
+///
+/// let forks = fm.list_forks()?;
+/// assert_eq!(forks.len(), 1);
+/// # Ok(())
+/// # }
+/// ```
 pub struct ForkManager {
     backend: GitBackend,
     forks: RwLock<HashMap<String, ForkMetadata>>,
@@ -101,6 +124,19 @@ pub struct ForkManager {
 
 impl ForkManager {
     /// Create a new ForkManager, loading any persisted fork metadata from disk.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// let fm = gitoxide_fs::ForkManager::new(backend);
+    /// // Fork metadata is loaded from .gitoxide-fs/forks.json if it exists
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(backend: GitBackend) -> Self {
         let metadata_path = backend.repo_path().join(".gitoxide-fs").join("forks.json");
         let forks = Self::load_from_disk(&metadata_path).unwrap_or_default();
@@ -117,6 +153,26 @@ impl ForkManager {
     }
 
     /// Create a new fork from the current branch.
+    ///
+    /// A fork creates a new git branch at the current HEAD and tracks
+    /// it for later merging. The fork name must be unique.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// # backend.write_file("f.txt", b"")?;
+    /// # backend.commit("init")?;
+    /// let fm = gitoxide_fs::ForkManager::new(backend);
+    /// let fork = fm.create_fork("agent-1")?;
+    /// assert!(!fork.merged);
+    /// assert_eq!(fork.commits_ahead, 0);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn create_fork(&self, name: &str) -> Result<ForkInfo> {
         let parent_branch = self.backend.current_branch()?;
         let fork_point = self
@@ -248,6 +304,25 @@ impl ForkManager {
     }
 
     /// List all active forks.
+    ///
+    /// Returns forks sorted by name. Includes both merged and unmerged forks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// # backend.write_file("f.txt", b"")?;
+    /// # backend.commit("init")?;
+    /// let fm = gitoxide_fs::ForkManager::new(backend);
+    /// fm.create_fork("a")?;
+    /// fm.create_fork("b")?;
+    /// assert_eq!(fm.list_forks()?.len(), 2);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn list_forks(&self) -> Result<Vec<ForkInfo>> {
         let forks = self.read_forks()?;
         let mut result = Vec::new();
@@ -286,11 +361,42 @@ impl ForkManager {
     }
 
     /// Merge a fork back into its parent branch using the default three-way strategy.
+    ///
+    /// After merging, the fork is marked as merged and cannot be merged again.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// # backend.write_file("f.txt", b"original")?;
+    /// # backend.commit("init")?;
+    /// let fm = gitoxide_fs::ForkManager::new(backend);
+    /// fm.create_fork("fix")?;
+    ///
+    /// // Work on the fork branch
+    /// fm.backend().checkout_branch("fix")?;
+    /// fm.backend().write_file("fix.txt", b"patched")?;
+    /// fm.backend().commit("apply fix")?;
+    ///
+    /// // Merge back
+    /// let result = fm.merge_fork("fix")?;
+    /// assert!(!result.had_conflicts);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn merge_fork(&self, name: &str) -> Result<MergeResult> {
         self.merge_fork_with_strategy(name, MergeStrategy::ThreeWay)
     }
 
     /// Merge with a specific strategy.
+    ///
+    /// Available strategies:
+    /// * [`MergeStrategy::ThreeWay`] — reports conflicts (default)
+    /// * [`MergeStrategy::Ours`] — our side wins on conflicts
+    /// * [`MergeStrategy::Theirs`] — their side wins on conflicts
     pub fn merge_fork_with_strategy(
         &self,
         name: &str,
