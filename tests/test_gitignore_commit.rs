@@ -41,7 +41,9 @@ fn gitignored_file_excluded_from_commit() {
     assert_eq!(content, b"hello");
 
     // Gitignored file should exist on disk but NOT in the commit
-    let on_disk = backend.read_file("debug.log").expect("log should exist on disk");
+    let on_disk = backend
+        .read_file("debug.log")
+        .expect("log should exist on disk");
     assert_eq!(on_disk, b"log output");
 
     let result = backend.read_file_at_commit("debug.log", &commit_id);
@@ -228,16 +230,12 @@ fn large_file_excluded_from_incremental_commit() {
     config.performance.large_file_threshold = 50;
     let backend = GitBackend::open(&config).expect("open backend");
 
-    backend
-        .write_file("small.txt", b"ok")
-        .expect("write small");
+    backend.write_file("small.txt", b"ok").expect("write small");
     backend.commit("initial").expect("initial commit");
 
     // Add a large file
     let big = vec![b'Z'; 100];
-    backend
-        .write_file("big.dat", &big)
-        .expect("write big");
+    backend.write_file("big.dat", &big).expect("write big");
     backend
         .write_file("small2.txt", b"also ok")
         .expect("write small2");
