@@ -973,3 +973,123 @@ fn incremental_commit_performance_many_files() {
         b"updated-content-2"
     );
 }
+
+// =============================================================================
+// CONFIG-BASED IGNORE PATTERNS
+// =============================================================================
+
+#[test]
+fn config_ignore_patterns_match_node_modules() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    // Default config includes node_modules
+    assert!(
+        backend
+            .is_ignored("node_modules/package.json")
+            .expect("check"),
+        "node_modules/ contents should be ignored by default config"
+    );
+    assert!(
+        backend.is_ignored("node_modules").expect("check"),
+        "node_modules itself should be ignored"
+    );
+}
+
+#[test]
+fn config_ignore_patterns_match_pycache() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    assert!(backend
+        .is_ignored("__pycache__/module.cpython-311.pyc")
+        .expect("check"));
+    assert!(backend.is_ignored("__pycache__").expect("check"));
+}
+
+#[test]
+fn config_ignore_patterns_match_glob() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    // *.pyc is a glob pattern in the default config
+    assert!(
+        backend.is_ignored("module.pyc").expect("check"),
+        "*.pyc should match module.pyc"
+    );
+    assert!(
+        backend.is_ignored("subdir/module.pyc").expect("check"),
+        "*.pyc should match in subdirs"
+    );
+}
+
+#[test]
+fn config_ignore_patterns_normal_files_not_ignored() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    assert!(!backend.is_ignored("src/main.rs").expect("check"));
+    assert!(!backend.is_ignored("README.md").expect("check"));
+    assert!(!backend.is_ignored("package.json").expect("check"));
+}
+
+#[test]
+fn config_ignore_patterns_custom_override() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.ignore_patterns = vec!["dist".to_string(), "*.o".to_string()];
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // Custom patterns should work
+    assert!(backend.is_ignored("dist/bundle.js").expect("check"));
+    assert!(backend.is_ignored("main.o").expect("check"));
+
+    // Default patterns no longer active
+    assert!(!backend.is_ignored("node_modules/foo").expect("check"));
+}
+
+#[test]
+fn config_ignore_patterns_empty_ignores_nothing() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.ignore_patterns = vec![];
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    assert!(!backend.is_ignored("node_modules/foo").expect("check"));
+    assert!(!backend.is_ignored("__pycache__/bar").expect("check"));
+}
+
+#[test]
+fn ignored_files_still_readable() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    // Write a file that matches an ignore pattern
+    backend.create_dir("node_modules").expect("create dir");
+    backend
+        .write_file("node_modules/foo.js", b"module.exports = {};")
+        .expect("write ignored file");
+
+    // File should still be readable even though it's ignored
+    let content = backend
+        .read_file("node_modules/foo.js")
+        .expect("read ignored file");
+    assert_eq!(content, b"module.exports = {};");
+}
+
+#[test]
+fn config_ignore_target_dir() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+
+    assert!(backend.is_ignored("target/debug/build").expect("check"));
+    assert!(backend.is_ignored("target/release/myapp").expect("check"));
+}

@@ -1672,8 +1672,19 @@ impl GitBackend {
 
     // ==================== .gitignore =====================================
 
-    /// Check if a path is ignored by .gitignore.
+    /// Check if a path is ignored by .gitignore or configured ignore patterns.
+    ///
+    /// The check evaluates configured ignore patterns first (from
+    /// [`Config::ignore_patterns`]), then layers .gitignore rules on top.
+    /// Negation patterns in .gitignore can un-ignore a path that matched
+    /// a config pattern.
     pub fn is_ignored(&self, path: &str) -> Result<bool> {
+        // Phase 1: check config ignore patterns
+        if self.is_ignored_by_config(path) {
+            return Ok(true);
+        }
+
+        // Phase 2: check .gitignore
         let gitignore_path = self.repo_path.join(".gitignore");
         if !gitignore_path.exists() {
             return Ok(false);
@@ -1715,6 +1726,47 @@ impl GitBackend {
         }
 
         Ok(ignored)
+    }
+
+    /// Check if a path matches any of the configured ignore patterns.
+    ///
+    /// Each pattern is matched as:
+    /// - A directory name if it contains no glob chars (e.g. `node_modules`
+    ///   matches `node_modules` and `node_modules/foo/bar`)
+    /// - A glob pattern against the filename component (e.g. `*.pyc`)
+    fn is_ignored_by_config(&self, path: &str) -> bool {
+        let filename = Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path);
+
+        for pattern in &self.config.ignore_patterns {
+            let pat = pattern.as_str();
+
+            if pat.contains('*') || pat.contains('?') || pat.contains('[') {
+                // Glob pattern — match against the filename component
+                if glob_match(pat, filename) {
+                    return true;
+                }
+            } else {
+                // Plain name — treat as a directory/file name match.
+                // Matches if any path component equals the pattern.
+                if filename == pat {
+                    return true;
+                }
+                // Also match if the path starts with or contains this as
+                // a directory segment: "node_modules/foo" matches "node_modules"
+                if path == pat
+                    || path.starts_with(&format!("{}/", pat))
+                    || path.contains(&format!("/{}/", pat))
+                    || path.contains(&format!("/{}", pat)) && path.ends_with(pat)
+                {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     // ==================== Branch operations ==============================

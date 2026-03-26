@@ -58,6 +58,13 @@ enum Commands {
         /// Verbose/debug logging.
         #[arg(short, long)]
         verbose: bool,
+
+        /// Comma-separated ignore patterns (overrides defaults).
+        ///
+        /// Files matching these patterns can still be read and written,
+        /// but writes will NOT trigger auto-commits.
+        #[arg(long, value_delimiter = ',')]
+        ignore: Option<Vec<String>>,
     },
 
     /// Unmount a gitoxide-fs filesystem.
@@ -198,6 +205,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             debounce_ms,
             no_auto_commit,
             verbose,
+            ignore,
         } => {
             let mut config = if let Some(path) = config_path {
                 Config::from_file(&path)?
@@ -216,6 +224,9 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
             if verbose {
                 config.log_level = "debug".to_string();
+            }
+            if let Some(patterns) = ignore {
+                config.ignore_patterns = patterns;
             }
 
             // Initialize logging

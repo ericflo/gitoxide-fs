@@ -221,7 +221,14 @@ impl FuseHandler {
     }
 
     /// Mark a path as dirty and auto-commit if batch size is reached.
+    ///
+    /// Paths that are ignored (by .gitignore or config ignore patterns) are
+    /// silently skipped — the write still succeeds but no commit is created.
     fn mark_dirty(&mut self, path: &str) {
+        // Skip auto-commit for ignored paths
+        if self.backend.is_ignored(path).unwrap_or(false) {
+            return;
+        }
         self.dirty.insert(path.to_string());
         if self.dirty.len() >= self.config.commit.max_batch_size {
             self.maybe_commit();
