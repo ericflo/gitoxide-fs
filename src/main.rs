@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 
 use gitoxide_fs::config::{Config, MergeStrategy};
 use gitoxide_fs::fork::ForkManager;
@@ -104,6 +105,21 @@ enum Commands {
         #[arg(long)]
         repo: PathBuf,
     },
+
+    /// Generate shell completions for gofs.
+    ///
+    /// Install with: `eval "$(gofs completions bash)"` (bash),
+    /// `gofs completions zsh > _gofs` (zsh), or
+    /// `gofs completions fish | source` (fish).
+    Completions {
+        /// Shell to generate completions for.
+        shell: Shell,
+    },
+
+    /// Generate a man page for gofs and print it to stdout.
+    ///
+    /// Install with: `gofs manpage > /usr/local/share/man/man1/gofs.1`
+    Manpage,
 }
 
 #[derive(Subcommand)]
@@ -343,6 +359,16 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let gitfs = GitFs::new(config)?;
             gitfs.rollback(&commit)?;
             println!("Rolled back to {}", commit);
+        }
+
+        Commands::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "gofs", &mut std::io::stdout());
+        }
+
+        Commands::Manpage => {
+            let cmd = Cli::command();
+            let man = clap_mangen::Man::new(cmd);
+            man.render(&mut std::io::stdout())?;
         }
     }
 

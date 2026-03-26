@@ -182,6 +182,37 @@ gofs fork abandon <name> --repo <path>
 
 gofs checkpoint <name> --repo <path>
 gofs rollback <commit> --repo <path>
+
+gofs completions <shell>       # bash, zsh, fish, elvish, powershell
+gofs manpage                   # print man page to stdout
+```
+
+## Shell completions
+
+Tab-complete all subcommands, flags, and arguments:
+
+```bash
+# Bash — add to ~/.bashrc
+eval "$(gofs completions bash)"
+
+# Zsh — place in your fpath
+gofs completions zsh > "${fpath[1]}/_gofs"
+
+# Fish
+gofs completions fish | source
+# Or persist:
+gofs completions fish > ~/.config/fish/completions/gofs.fish
+```
+
+## Man page
+
+```bash
+# View immediately
+gofs manpage | man -l -
+
+# Or install system-wide
+gofs manpage | sudo tee /usr/local/share/man/man1/gofs.1 > /dev/null
+sudo mandb
 ```
 
 ## Library usage

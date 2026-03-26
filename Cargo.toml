@@ -26,6 +26,8 @@ gix = { version = "0.72", features = ["blocking-network-client"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.2"
 
 # Configuration
 serde = { version = "1", features = ["derive"] }
