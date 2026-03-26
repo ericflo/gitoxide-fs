@@ -187,3 +187,66 @@ fn config_env_var_override_concept() {
     assert!(modified.read_only);
     assert_eq!(modified.commit.debounce_ms, 2000);
 }
+
+// =============================================================================
+// IGNORE PATTERNS
+// =============================================================================
+
+#[test]
+fn config_default_ignore_patterns() {
+    let config = Config::new(PathBuf::from("/tmp/r"), PathBuf::from("/tmp/m"));
+    let patterns = &config.ignore_patterns;
+    assert!(patterns.contains(&"node_modules".to_string()));
+    assert!(patterns.contains(&"__pycache__".to_string()));
+    assert!(patterns.contains(&".git".to_string()));
+    assert!(patterns.contains(&"venv".to_string()));
+    assert!(patterns.contains(&"target".to_string()));
+    assert!(patterns.contains(&".local".to_string()));
+    assert!(patterns.contains(&".cache".to_string()));
+    assert!(patterns.contains(&"*.pyc".to_string()));
+}
+
+#[test]
+fn config_custom_ignore_patterns_from_toml() {
+    let dir = TempDir::new().unwrap();
+    let toml_path = dir.path().join("test.toml");
+    std::fs::write(
+        &toml_path,
+        r#"
+repo_path = "/tmp/repo"
+mount_point = "/tmp/mount"
+ignore_patterns = ["dist", "*.o", "build"]
+"#,
+    )
+    .unwrap();
+
+    let config = Config::from_file(&toml_path).unwrap();
+    assert_eq!(config.ignore_patterns, vec!["dist", "*.o", "build"]);
+}
+
+#[test]
+fn config_empty_ignore_patterns_from_toml() {
+    let dir = TempDir::new().unwrap();
+    let toml_path = dir.path().join("test.toml");
+    std::fs::write(
+        &toml_path,
+        r#"
+repo_path = "/tmp/repo"
+mount_point = "/tmp/mount"
+ignore_patterns = []
+"#,
+    )
+    .unwrap();
+
+    let config = Config::from_file(&toml_path).unwrap();
+    assert!(config.ignore_patterns.is_empty());
+}
+
+#[test]
+fn config_ignore_patterns_override() {
+    let mut config = Config::new(PathBuf::from("/tmp/r"), PathBuf::from("/tmp/m"));
+    assert!(!config.ignore_patterns.is_empty()); // has defaults
+
+    config.ignore_patterns = vec!["custom_dir".to_string()];
+    assert_eq!(config.ignore_patterns, vec!["custom_dir"]);
+}

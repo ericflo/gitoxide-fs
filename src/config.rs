@@ -74,6 +74,18 @@ pub struct Config {
     /// Logging level.
     #[serde(default = "default_log_level")]
     pub log_level: String,
+
+    /// Glob patterns for paths that should be ignored by auto-commit.
+    ///
+    /// Files matching these patterns can still be read and written, but
+    /// writes will NOT trigger auto-commits.  This prevents junk commits
+    /// for build artifacts, caches, and virtual-env directories.
+    ///
+    /// Defaults to a hardened set suitable for agent workspaces:
+    /// `node_modules`, `__pycache__`, `.git`, `venv`, `target`, `.local`,
+    /// `.cache`, `*.pyc`.
+    #[serde(default = "default_ignore_patterns")]
+    pub ignore_patterns: Vec<String>,
 }
 
 /// Controls how and when commits are created.
@@ -188,6 +200,7 @@ impl Config {
             fork: ForkConfig::default(),
             performance: PerformanceConfig::default(),
             log_level: default_log_level(),
+            ignore_patterns: default_ignore_patterns(),
         }
     }
 
@@ -268,4 +281,16 @@ fn default_large_file_threshold() -> usize {
 } // 10 MB
 fn default_log_level() -> String {
     "info".to_string()
+}
+fn default_ignore_patterns() -> Vec<String> {
+    vec![
+        "node_modules".to_string(),
+        "__pycache__".to_string(),
+        ".git".to_string(),
+        "venv".to_string(),
+        "target".to_string(),
+        ".local".to_string(),
+        ".cache".to_string(),
+        "*.pyc".to_string(),
+    ]
 }
