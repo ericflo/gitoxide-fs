@@ -238,7 +238,12 @@ impl FuseHandler {
             let abs_path = self.config.repo_path.join(path);
             if let Ok(meta) = std::fs::metadata(&abs_path) {
                 if meta.len() as usize > threshold {
-                    trace!(path, size = meta.len(), threshold, "skipping commit: file exceeds large_file_threshold");
+                    trace!(
+                        path,
+                        size = meta.len(),
+                        threshold,
+                        "skipping commit: file exceeds large_file_threshold"
+                    );
                     return true;
                 }
             }

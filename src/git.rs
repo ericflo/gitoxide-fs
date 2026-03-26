@@ -1047,7 +1047,12 @@ impl GitBackend {
                 // Defense-in-depth: skip files exceeding large_file_threshold
                 let threshold = self.config.performance.large_file_threshold;
                 if threshold > 0 && content.len() > threshold {
-                    trace!(path = child_rel, size = content.len(), threshold, "build_tree: skipping large file");
+                    trace!(
+                        path = child_rel,
+                        size = content.len(),
+                        threshold,
+                        "build_tree: skipping large file"
+                    );
                     continue;
                 }
 
@@ -1303,7 +1308,12 @@ impl GitBackend {
             // Defense-in-depth: skip files exceeding large_file_threshold
             let threshold = self.config.performance.large_file_threshold;
             if threshold > 0 && content.len() > threshold {
-                trace!(path = child_rel, size = content.len(), threshold, "build_entry: skipping large file");
+                trace!(
+                    path = child_rel,
+                    size = content.len(),
+                    threshold,
+                    "build_entry: skipping large file"
+                );
                 return Ok(());
             }
 
