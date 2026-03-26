@@ -277,8 +277,12 @@ impl Filesystem for FuseHandler {
     }
 
     fn destroy(&mut self) {
-        // Flush any pending commits before shutdown
+        // Flush any pending commits from the FUSE dirty set
         self.maybe_commit();
+        // Flush any pending debounced auto-commits from the git backend
+        if let Err(e) = self.backend.flush_pending_auto_commit() {
+            eprintln!("gitoxide-fs: warning: failed to flush pending auto-commits on unmount: {e}");
+        }
     }
 
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
