@@ -784,7 +784,10 @@ impl GitBackend {
         let mut entries: Vec<OwnedTreeEntry> = Vec::new();
 
         for entry in fs::read_dir(&abs_dir)? {
-            let entry = entry?;
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue, // Entry vanished during concurrent modification
+            };
             let name_os = entry.file_name();
             let name = name_os.to_string_lossy().to_string();
 
@@ -792,7 +795,10 @@ impl GitBackend {
                 continue;
             }
 
-            let ft = entry.file_type()?;
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue, // Entry vanished during concurrent modification
+            };
             let child_rel = if rel_dir.is_empty() {
                 name.clone()
             } else {
@@ -807,7 +813,10 @@ impl GitBackend {
                     oid: subtree_id,
                 });
             } else if ft.is_symlink() {
-                let target = fs::read_link(entry.path())?;
+                let target = match fs::read_link(entry.path()) {
+                    Ok(t) => t,
+                    Err(_) => continue, // Symlink vanished during concurrent modification
+                };
                 let blob_id = repo
                     .write_blob(target.to_string_lossy().as_bytes())
                     .map_err(|e| Error::Git(e.to_string()))?
@@ -818,7 +827,10 @@ impl GitBackend {
                     oid: blob_id,
                 });
             } else {
-                let content = fs::read(entry.path())?;
+                let content = match fs::read(entry.path()) {
+                    Ok(c) => c,
+                    Err(_) => continue, // File vanished during concurrent modification
+                };
                 let blob_id = repo
                     .write_blob(&content)
                     .map_err(|e| Error::Git(e.to_string()))?
@@ -827,7 +839,10 @@ impl GitBackend {
                 #[cfg(unix)]
                 let mode: EntryMode = {
                     use std::os::unix::fs::MetadataExt;
-                    let meta = entry.metadata()?;
+                    let meta = match entry.metadata() {
+                        Ok(m) => m,
+                        Err(_) => continue, // Entry vanished during concurrent modification
+                    };
                     if meta.mode() & 0o111 != 0 {
                         EntryKind::BlobExecutable.into()
                     } else {
@@ -920,7 +935,10 @@ impl GitBackend {
         }
 
         for entry in fs::read_dir(&abs_dir)? {
-            let entry = entry?;
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue, // Entry vanished during concurrent modification
+            };
             let name_os = entry.file_name();
             let name = name_os.to_string_lossy().to_string();
 
@@ -928,7 +946,10 @@ impl GitBackend {
                 continue;
             }
 
-            let ft = entry.file_type()?;
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue, // Entry vanished during concurrent modification
+            };
             let child_rel = if rel_dir.is_empty() {
                 name.clone()
             } else {
@@ -951,7 +972,24 @@ impl GitBackend {
                     // Type changed — fall through to rebuild
                 }
                 // Entry is new or type changed — build from workdir
-                self.build_entry_from_workdir(repo, &name, &child_rel, &entry, ft, &mut entries)?;
+                if ft.is_dir() {
+                    // New directory not in previous tree — do a full subtree build
+                    let subtree_id = self.build_tree_from_workdir(repo, &child_rel)?;
+                    entries.push(OwnedTreeEntry {
+                        mode: EntryKind::Tree.into(),
+                        filename: BString::from(name.as_str()),
+                        oid: subtree_id,
+                    });
+                } else {
+                    self.build_entry_from_workdir(
+                        repo,
+                        &name,
+                        &child_rel,
+                        &entry,
+                        ft,
+                        &mut entries,
+                    )?;
+                }
             } else {
                 // This child is dirty — need to rebuild
                 if ft.is_dir() {
@@ -1006,6 +1044,7 @@ impl GitBackend {
     }
 
     /// Build a single tree entry (file or symlink) from a directory entry on disk.
+    /// Gracefully skips entries that can't be read (e.g., vanished during concurrent modification).
     fn build_entry_from_workdir(
         &self,
         repo: &gix::Repository,
@@ -1016,7 +1055,10 @@ impl GitBackend {
         entries: &mut Vec<OwnedTreeEntry>,
     ) -> Result<()> {
         if ft.is_symlink() {
-            let target = fs::read_link(entry.path())?;
+            let target = match fs::read_link(entry.path()) {
+                Ok(t) => t,
+                Err(_) => return Ok(()), // Symlink vanished during concurrent modification
+            };
             let blob_id = repo
                 .write_blob(target.to_string_lossy().as_bytes())
                 .map_err(|e| Error::Git(e.to_string()))?
@@ -1027,7 +1069,10 @@ impl GitBackend {
                 oid: blob_id,
             });
         } else {
-            let content = fs::read(entry.path())?;
+            let content = match fs::read(entry.path()) {
+                Ok(c) => c,
+                Err(_) => return Ok(()), // File vanished during concurrent modification
+            };
             let blob_id = repo
                 .write_blob(&content)
                 .map_err(|e| Error::Git(e.to_string()))?
@@ -1036,11 +1081,15 @@ impl GitBackend {
             #[cfg(unix)]
             let mode: EntryMode = {
                 use std::os::unix::fs::MetadataExt;
-                let meta = entry.metadata()?;
-                if meta.mode() & 0o111 != 0 {
-                    EntryKind::BlobExecutable.into()
-                } else {
-                    EntryKind::Blob.into()
+                match entry.metadata() {
+                    Ok(meta) => {
+                        if meta.mode() & 0o111 != 0 {
+                            EntryKind::BlobExecutable.into()
+                        } else {
+                            EntryKind::Blob.into()
+                        }
+                    }
+                    Err(_) => EntryKind::Blob.into(), // Default if metadata unavailable
                 }
             };
             #[cfg(not(unix))]
