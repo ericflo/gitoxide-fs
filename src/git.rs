@@ -982,7 +982,12 @@ impl GitBackend {
                     });
                 } else {
                     self.build_entry_from_workdir(
-                        repo, &name, &child_rel, &entry, ft, &mut entries,
+                        repo,
+                        &name,
+                        &child_rel,
+                        &entry,
+                        ft,
+                        &mut entries,
                     )?;
                 }
             } else {
