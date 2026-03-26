@@ -19,6 +19,8 @@ use gix::objs::tree::{Entry as OwnedTreeEntry, EntryKind, EntryMode};
 use gix::objs::{Commit as OwnedCommit, Tree as OwnedTree};
 use gix::ObjectId;
 
+use tracing::trace;
+
 use crate::config::Config;
 use crate::error::{Error, Result};
 
@@ -1007,6 +1009,14 @@ impl GitBackend {
                 format!("{}/{}", rel_dir, name)
             };
 
+            // Defense-in-depth: skip gitignored paths
+            if !ft.is_dir() {
+                if let Ok(true) = self.is_ignored(&child_rel) {
+                    trace!(path = child_rel, "build_tree: skipping gitignored file");
+                    continue;
+                }
+            }
+
             if ft.is_dir() {
                 let subtree_id = self.build_tree_from_workdir(repo, &child_rel)?;
                 entries.push(OwnedTreeEntry {
@@ -1033,6 +1043,14 @@ impl GitBackend {
                     Ok(c) => c,
                     Err(_) => continue, // File vanished during concurrent modification
                 };
+
+                // Defense-in-depth: skip files exceeding large_file_threshold
+                let threshold = self.config.performance.large_file_threshold;
+                if threshold > 0 && content.len() > threshold {
+                    trace!(path = child_rel, size = content.len(), threshold, "build_tree: skipping large file");
+                    continue;
+                }
+
                 let blob_id = repo
                     .write_blob(&content)
                     .map_err(|e| Error::Git(e.to_string()))?
@@ -1251,11 +1269,17 @@ impl GitBackend {
         &self,
         repo: &gix::Repository,
         name: &str,
-        _child_rel: &str,
+        child_rel: &str,
         entry: &fs::DirEntry,
         ft: std::fs::FileType,
         entries: &mut Vec<OwnedTreeEntry>,
     ) -> Result<()> {
+        // Defense-in-depth: skip gitignored files
+        if let Ok(true) = self.is_ignored(child_rel) {
+            trace!(path = child_rel, "build_entry: skipping gitignored file");
+            return Ok(());
+        }
+
         if ft.is_symlink() {
             let target = match fs::read_link(entry.path()) {
                 Ok(t) => t,
@@ -1275,6 +1299,14 @@ impl GitBackend {
                 Ok(c) => c,
                 Err(_) => return Ok(()), // File vanished during concurrent modification
             };
+
+            // Defense-in-depth: skip files exceeding large_file_threshold
+            let threshold = self.config.performance.large_file_threshold;
+            if threshold > 0 && content.len() > threshold {
+                trace!(path = child_rel, size = content.len(), threshold, "build_entry: skipping large file");
+                return Ok(());
+            }
+
             let blob_id = repo
                 .write_blob(&content)
                 .map_err(|e| Error::Git(e.to_string()))?
