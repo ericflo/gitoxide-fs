@@ -18,6 +18,8 @@ use fuser::{
     ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request,
 };
 
+use tracing::trace;
+
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::git::{self, GitBackend};
@@ -220,13 +222,37 @@ impl FuseHandler {
         let _ = self.backend.commit(&msg);
     }
 
+    /// Check if a path should be excluded from git commits.
+    ///
+    /// Returns `true` if the path is gitignored or exceeds the large file threshold.
+    fn should_skip_commit(&self, path: &str) -> bool {
+        // Check .gitignore
+        if let Ok(true) = self.backend.is_ignored(path) {
+            trace!(path, "skipping commit: path is gitignored");
+            return true;
+        }
+
+        // Check large file threshold
+        let threshold = self.config.performance.large_file_threshold;
+        if threshold > 0 {
+            let abs_path = self.config.repo_path.join(path);
+            if let Ok(meta) = std::fs::metadata(&abs_path) {
+                if meta.len() as usize > threshold {
+                    trace!(path, size = meta.len(), threshold, "skipping commit: file exceeds large_file_threshold");
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Mark a path as dirty and auto-commit if batch size is reached.
     ///
     /// Paths that are ignored (by .gitignore or config ignore patterns) are
     /// silently skipped — the write still succeeds but no commit is created.
     fn mark_dirty(&mut self, path: &str) {
-        // Skip auto-commit for ignored paths
-        if self.backend.is_ignored(path).unwrap_or(false) {
+        if self.should_skip_commit(path) {
             return;
         }
         self.dirty.insert(path.to_string());
