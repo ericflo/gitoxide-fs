@@ -44,6 +44,10 @@ fn bench_random_write(c: &mut Criterion) {
     for size in [1024, 4096, 65536].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let (_dir, backend) = setup_backend();
+            // Pre-create the target directories.
+            for i in 0..10 {
+                backend.create_dir(&format!("dir_{}", i)).unwrap();
+            }
             let data = vec![0xCDu8; size];
             let mut counter = 0u64;
             b.iter(|| {
@@ -107,6 +111,7 @@ fn bench_random_read(c: &mut Criterion) {
 fn bench_metadata_ops(c: &mut Criterion) {
     // Setup: create a repo with files and directories.
     let (_dir, backend) = setup_backend();
+    backend.create_dir("meta_dir").unwrap();
     for i in 0..100 {
         backend
             .write_file(&format!("meta_dir/file_{}.txt", i), b"content")
@@ -127,6 +132,7 @@ fn bench_metadata_ops(c: &mut Criterion) {
 
     // Create a large directory for the 10000-entry benchmark.
     let (_dir2, backend2) = setup_backend();
+    backend2.create_dir("large_dir").unwrap();
     for i in 0..1000 {
         // Use 1000 instead of 10000 to keep setup fast; still tests scaling.
         backend2
@@ -152,6 +158,7 @@ fn bench_many_small_files(c: &mut Criterion) {
                     setup_backend()
                 },
                 |(_dir, backend)| {
+                    backend.create_dir("small").unwrap();
                     for i in 0..count {
                         backend
                             .write_file(&format!("small/f_{}.txt", i), b"small file content here")
@@ -197,6 +204,7 @@ fn bench_commit_overhead(c: &mut Criterion) {
         b.iter_batched(
             setup_backend,
             |(_dir, backend)| {
+                backend.create_dir("batch").unwrap();
                 for i in 0..100 {
                     backend
                         .write_file(&format!("batch/f_{}.txt", i), b"batch data")
@@ -237,6 +245,7 @@ fn bench_directory_listing_scaling(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(count), count, |b, &count| {
             let (_dir, backend) = setup_backend();
             // Pre-populate directory.
+            backend.create_dir("scale_dir").unwrap();
             for i in 0..count {
                 backend
                     .write_file(&format!("scale_dir/entry_{}.txt", i), b"data")
@@ -269,6 +278,7 @@ fn bench_fork_creation(c: &mut Criterion) {
     c.bench_function("fork_creation_1000_files", |b| {
         let (_dir, backend) = setup_backend();
         // Populate repo with files.
+        backend.create_dir("populated").unwrap();
         for i in 0..1000 {
             backend
                 .write_file(&format!("populated/f_{}.txt", i), b"fork test content")
@@ -364,6 +374,8 @@ fn bench_rename_operations(c: &mut Criterion) {
     });
     group.bench_function("rename_across_dirs", |b| {
         let (_dir, backend) = setup_backend();
+        backend.create_dir("dir_a").unwrap();
+        backend.create_dir("dir_b").unwrap();
         let mut counter = 0u64;
         b.iter(|| {
             let from = format!("dir_a/cross_{}.txt", counter);
@@ -496,6 +508,9 @@ fn bench_concurrent_write_throughput(c: &mut Criterion) {
                 b.iter_batched(
                     setup_backend,
                     |(_dir, backend)| {
+                        for t in 0..threads {
+                            backend.create_dir(&format!("t{}", t)).unwrap();
+                        }
                         let backend = std::sync::Arc::new(backend);
                         let handles: Vec<_> = (0..threads)
                             .map(|t| {
@@ -536,6 +551,7 @@ fn bench_concurrent_read_throughput(c: &mut Criterion) {
                         let (dir, backend) = setup_backend();
                         // Pre-populate files for reading.
                         for t in 0..threads {
+                            backend.create_dir(&format!("rt{}", t)).unwrap();
                             for i in 0..50 {
                                 backend
                                     .write_file(
