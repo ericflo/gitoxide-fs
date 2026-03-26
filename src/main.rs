@@ -4,14 +4,26 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
 
+use anstream::eprintln as color_eprintln;
+use anstream::println as color_println;
+use anstyle::{AnsiColor, Style};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 
 use gitoxide_fs::config::{Config, MergeStrategy};
+use gitoxide_fs::error::Error as GfsError;
 use gitoxide_fs::fork::ForkManager;
 use gitoxide_fs::fs::GitFs;
 use gitoxide_fs::git::GitBackend;
 use gitoxide_fs::health::HealthServer;
+
+const SUCCESS_STYLE: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Green)));
+const ERROR_STYLE: Style = Style::new()
+    .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)))
+    .bold();
+const HINT_STYLE: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)));
+const WARN_STYLE: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)));
+const RESET: anstyle::Reset = anstyle::Reset;
 
 #[derive(Parser)]
 #[command(
@@ -203,9 +215,20 @@ enum ForkCommands {
 
 fn main() {
     let cli = Cli::parse();
+    let json_mode = cli.json;
 
     if let Err(e) = run(cli) {
-        eprintln!("error: {}", e);
+        if json_mode {
+            eprintln!("error: {}", e);
+        } else {
+            color_eprintln!("{ERROR_STYLE}error:{RESET} {e}");
+            // Try to downcast to our error type for hints
+            if let Some(gfs_err) = e.downcast_ref::<GfsError>() {
+                if let Some(hint) = gfs_err.hint() {
+                    color_eprintln!("{HINT_STYLE}hint:{RESET}  {hint}");
+                }
+            }
+        }
         process::exit(1);
     }
 }
@@ -253,7 +276,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             init_logging(&config.log_level);
 
             if !json_output {
-                println!(
+                color_println!(
                     "Mounting {} at {}",
                     config.repo_path.display(),
                     mountpoint.display()
@@ -273,8 +296,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     })
                 );
             } else {
-                println!(
-                    "Mounted successfully. Use 'gofs unmount {}' to unmount.",
+                color_println!(
+                    "{SUCCESS_STYLE}✓{RESET} Mounted successfully. Use 'gofs unmount {}' to unmount.",
                     mountpoint.display()
                 );
             }
@@ -290,7 +313,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 #[cfg(not(unix))]
                 {
                     let _ = socket_path;
-                    eprintln!("Warning: --health-socket is not supported on this platform");
+                    color_eprintln!("{WARN_STYLE}warning:{RESET} --health-socket is not supported on this platform");
                     None
                 }
             } else {
@@ -302,9 +325,10 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 let mount_path = Arc::new(mountpoint.clone());
                 let mp = mount_path.clone();
                 ctrlc::set_handler(move || {
+                    // Inside signal handler — use plain eprintln (no color) for safety
                     eprintln!("\nReceived Ctrl+C, unmounting {}...", mp.display());
                     if let Err(e) = GitFs::unmount(&mp) {
-                        eprintln!("Warning: unmount failed: {}", e);
+                        eprintln!("warning: unmount failed: {}", e);
                     }
                     process::exit(0);
                 })
@@ -327,7 +351,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     })
                 );
             } else {
-                println!("Unmounted {}", mountpoint.display());
+                color_println!("{SUCCESS_STYLE}✓{RESET} Unmounted {}", mountpoint.display());
             }
         }
 
@@ -364,8 +388,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 if json_output {
                     println!("{}", serde_json::to_string(&info)?);
                 } else {
-                    println!("Created fork '{}' on branch '{}'", info.id, info.branch);
-                    println!("Fork point: {}", info.fork_point);
+                    color_println!(
+                        "{SUCCESS_STYLE}✓{RESET} Created fork '{}' on branch '{}'",
+                        info.id,
+                        info.branch
+                    );
+                    color_println!("  Fork point: {}", info.fork_point);
                 }
             }
 
@@ -410,12 +438,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 if json_output {
                     println!("{}", serde_json::to_string(&result)?);
                 } else {
-                    println!("Merged fork '{}'", name);
-                    println!("Commit:        {}", result.commit_id);
-                    println!("Files changed: {}", result.files_changed);
+                    color_println!("{SUCCESS_STYLE}✓{RESET} Merged fork '{}'", name);
+                    color_println!("  Commit:        {}", result.commit_id);
+                    color_println!("  Files changed: {}", result.files_changed);
                     if result.had_conflicts {
-                        println!(
-                            "Conflicts:     {} (resolved with strategy '{}')",
+                        color_println!(
+                            "  {WARN_STYLE}Conflicts:{RESET}     {} (resolved with strategy '{}')",
                             result.conflicts.len(),
                             strategy
                         );
@@ -438,7 +466,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                         })
                     );
                 } else {
-                    println!("Abandoned fork '{}'", name);
+                    color_println!("{SUCCESS_STYLE}✓{RESET} Abandoned fork '{}'", name);
                 }
             }
         },
@@ -456,7 +484,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     })
                 );
             } else {
-                println!("Checkpoint '{}': {}", name, commit_id);
+                color_println!(
+                    "{SUCCESS_STYLE}✓{RESET} Checkpoint '{}': {}",
+                    name,
+                    commit_id
+                );
             }
         }
 
@@ -472,7 +504,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     })
                 );
             } else {
-                println!("Rolled back to {}", commit);
+                color_println!("{SUCCESS_STYLE}✓{RESET} Rolled back to {}", commit);
             }
         }
 
