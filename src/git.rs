@@ -2,7 +2,7 @@
 //!
 //! Wraps gitoxide (gix) to provide the git operations needed by the filesystem.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::fs;
 #[cfg(unix)]
@@ -407,13 +407,13 @@ impl GitBackend {
                 let files: Vec<String> = dirty.drain(..).collect();
                 drop(dirty);
                 let msg = format!("Auto-commit: {}", files.join(", "));
-                self.commit(&msg)?;
+                self.commit_incremental(&msg, &files)?;
             } else if batch_size > 0 && dirty.len() >= batch_size {
                 // Batch limit reached — commit now
                 let files: Vec<String> = dirty.drain(..).collect();
                 drop(dirty);
                 let msg = format!("Auto-commit batch: {}", files.join(", "));
-                self.commit(&msg)?;
+                self.commit_incremental(&msg, &files)?;
             }
             // Otherwise: debounce is active and batch limit not reached — wait
         }
@@ -430,7 +430,7 @@ impl GitBackend {
         let files: Vec<String> = dirty.drain(..).collect();
         drop(dirty);
         let msg = format!("Auto-commit: {}", files.join(", "));
-        self.commit(&msg).map(Some)
+        self.commit_incremental(&msg, &files).map(Some)
     }
 
     /// Delete a file from the working tree.
@@ -853,13 +853,252 @@ impl GitBackend {
             .map_err(|e| Error::Git(e.to_string()))
     }
 
+    /// Build a git tree incrementally by reusing unchanged subtrees from a previous commit.
+    ///
+    /// Only re-hashes blobs for files in `dirty_paths`. Reuses subtree OIDs from `prev_tree_id`
+    /// for directories that contain no dirty files. Falls back to full workdir scan for
+    /// directories that don't exist in the previous tree (new directories).
+    fn build_tree_incremental(
+        &self,
+        repo: &gix::Repository,
+        rel_dir: &str,
+        dirty_paths: &HashSet<String>,
+        prev_tree_id: ObjectId,
+    ) -> Result<ObjectId> {
+        let abs_dir = self.abs_path(rel_dir);
+
+        // Collect the set of immediate child names that are dirty (or have dirty descendants).
+        // For a dirty path like "a/b/c.txt" when rel_dir is "a", the child name is "b".
+        // For a dirty path like "a/file.txt" when rel_dir is "a", the child name is "file.txt".
+        let prefix = if rel_dir.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", rel_dir)
+        };
+        let mut dirty_children: HashSet<String> = HashSet::new();
+        for dp in dirty_paths {
+            if let Some(suffix) = dp.strip_prefix(&prefix) {
+                if let Some(slash) = suffix.find('/') {
+                    dirty_children.insert(suffix[..slash].to_string());
+                } else {
+                    dirty_children.insert(suffix.to_string());
+                }
+            } else if rel_dir.is_empty() {
+                // Top-level: paths without '/' are direct children
+                if !dp.contains('/') {
+                    dirty_children.insert(dp.clone());
+                } else if let Some(slash) = dp.find('/') {
+                    dirty_children.insert(dp[..slash].to_string());
+                }
+            }
+        }
+
+        // Load the previous tree's entries into a map for quick lookup
+        let prev_obj = repo
+            .find_object(prev_tree_id)
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let prev_tree = prev_obj
+            .try_into_tree()
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let mut prev_entries: HashMap<String, (EntryMode, ObjectId)> = HashMap::new();
+        for entry_result in prev_tree.iter() {
+            let entry = entry_result.map_err(|e| Error::Git(e.to_string()))?;
+            let name = entry.filename().to_string();
+            prev_entries.insert(name, (entry.mode(), entry.object_id()));
+        }
+
+        // Now build new entries by scanning the working directory
+        let mut entries: Vec<OwnedTreeEntry> = Vec::new();
+
+        if !abs_dir.exists() || !abs_dir.is_dir() {
+            // Directory was removed — return empty tree
+            let tree = OwnedTree::empty();
+            return repo
+                .write_object(&tree)
+                .map(|id| id.detach())
+                .map_err(|e| Error::Git(e.to_string()));
+        }
+
+        for entry in fs::read_dir(&abs_dir)? {
+            let entry = entry?;
+            let name_os = entry.file_name();
+            let name = name_os.to_string_lossy().to_string();
+
+            if name == ".git" {
+                continue;
+            }
+
+            let ft = entry.file_type()?;
+            let child_rel = if rel_dir.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", rel_dir, name)
+            };
+
+            if !dirty_children.contains(&name) {
+                // This child is not dirty — reuse from previous tree if it existed
+                if let Some(&(mode, oid)) = prev_entries.get(&name) {
+                    // Verify type consistency: if it was a tree and is still a dir (or vice versa)
+                    let was_tree = mode.is_tree();
+                    if (was_tree && ft.is_dir()) || (!was_tree && !ft.is_dir()) {
+                        entries.push(OwnedTreeEntry {
+                            mode,
+                            filename: BString::from(name.as_str()),
+                            oid,
+                        });
+                        continue;
+                    }
+                    // Type changed — fall through to rebuild
+                }
+                // Entry is new or type changed — build from workdir
+                self.build_entry_from_workdir(repo, &name, &child_rel, &entry, ft, &mut entries)?;
+            } else {
+                // This child is dirty — need to rebuild
+                if ft.is_dir() {
+                    // Check if previous tree had this as a subtree
+                    if let Some(&(mode, prev_subtree_oid)) = prev_entries.get(&name) {
+                        if mode.is_tree() {
+                            // Recurse incrementally into this subtree
+                            let subtree_id = self.build_tree_incremental(
+                                repo,
+                                &child_rel,
+                                dirty_paths,
+                                prev_subtree_oid,
+                            )?;
+                            entries.push(OwnedTreeEntry {
+                                mode: EntryKind::Tree.into(),
+                                filename: BString::from(name.as_str()),
+                                oid: subtree_id,
+                            });
+                            continue;
+                        }
+                    }
+                    // New directory or was previously a file — full rebuild of subtree
+                    let subtree_id = self.build_tree_from_workdir(repo, &child_rel)?;
+                    entries.push(OwnedTreeEntry {
+                        mode: EntryKind::Tree.into(),
+                        filename: BString::from(name.as_str()),
+                        oid: subtree_id,
+                    });
+                } else {
+                    // Dirty file — re-read from disk
+                    self.build_entry_from_workdir(
+                        repo,
+                        &name,
+                        &child_rel,
+                        &entry,
+                        ft,
+                        &mut entries,
+                    )?;
+                }
+            }
+        }
+
+        // Note: entries that were in prev_tree but are no longer on disk are simply
+        // not added to `entries`, which handles deletions correctly.
+
+        entries.sort();
+
+        let tree = OwnedTree { entries };
+        repo.write_object(&tree)
+            .map(|id| id.detach())
+            .map_err(|e| Error::Git(e.to_string()))
+    }
+
+    /// Build a single tree entry (file or symlink) from a directory entry on disk.
+    fn build_entry_from_workdir(
+        &self,
+        repo: &gix::Repository,
+        name: &str,
+        _child_rel: &str,
+        entry: &fs::DirEntry,
+        ft: std::fs::FileType,
+        entries: &mut Vec<OwnedTreeEntry>,
+    ) -> Result<()> {
+        if ft.is_symlink() {
+            let target = fs::read_link(entry.path())?;
+            let blob_id = repo
+                .write_blob(target.to_string_lossy().as_bytes())
+                .map_err(|e| Error::Git(e.to_string()))?
+                .detach();
+            entries.push(OwnedTreeEntry {
+                mode: EntryKind::Link.into(),
+                filename: BString::from(name),
+                oid: blob_id,
+            });
+        } else {
+            let content = fs::read(entry.path())?;
+            let blob_id = repo
+                .write_blob(&content)
+                .map_err(|e| Error::Git(e.to_string()))?
+                .detach();
+
+            #[cfg(unix)]
+            let mode: EntryMode = {
+                use std::os::unix::fs::MetadataExt;
+                let meta = entry.metadata()?;
+                if meta.mode() & 0o111 != 0 {
+                    EntryKind::BlobExecutable.into()
+                } else {
+                    EntryKind::Blob.into()
+                }
+            };
+            #[cfg(not(unix))]
+            let mode: EntryMode = EntryKind::Blob.into();
+
+            entries.push(OwnedTreeEntry {
+                mode,
+                filename: BString::from(name),
+                oid: blob_id,
+            });
+        }
+        Ok(())
+    }
+
     // ==================== Commit operations ==============================
 
     /// Create a commit with the given message.
+    ///
+    /// Always does a full working directory scan to build the tree.
+    /// For incremental commits (when you know which files changed), use
+    /// `commit_incremental()` instead.
     pub fn commit(&self, message: &str) -> Result<String> {
         let repo = self.repo.lock().unwrap();
         let tree_id = self.build_tree_from_workdir(&repo, "")?;
         let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
+        let commit_id = self.write_commit_inner(&repo, tree_id, &parents, message)?;
+        drop(repo);
+        self.update_head_to(commit_id)?;
+        Ok(commit_id.to_hex().to_string())
+    }
+
+    /// Create a commit using incremental tree building.
+    ///
+    /// Only re-hashes blobs for files in `dirty_paths`, reusing unchanged subtree
+    /// OIDs from the previous commit. Falls back to full rebuild when there is no
+    /// previous commit (initial commit).
+    pub fn commit_incremental(&self, message: &str, dirty_paths: &[String]) -> Result<String> {
+        let repo = self.repo.lock().unwrap();
+        let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
+
+        let tree_id = if !parents.is_empty() && !dirty_paths.is_empty() {
+            let dirty_set: HashSet<String> = dirty_paths.iter().cloned().collect();
+            let parent_obj = repo
+                .find_object(parents[0])
+                .map_err(|e| Error::Git(e.to_string()))?;
+            let parent_commit = parent_obj
+                .try_into_commit()
+                .map_err(|e| Error::Git(e.to_string()))?;
+            let prev_tree_id = parent_commit
+                .tree_id()
+                .map_err(|e| Error::Git(e.to_string()))?
+                .detach();
+            self.build_tree_incremental(&repo, "", &dirty_set, prev_tree_id)?
+        } else {
+            // No parent or no dirty paths — full rebuild
+            self.build_tree_from_workdir(&repo, "")?
+        };
+
         let commit_id = self.write_commit_inner(&repo, tree_id, &parents, message)?;
         drop(repo);
         self.update_head_to(commit_id)?;
