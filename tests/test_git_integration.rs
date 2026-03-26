@@ -684,7 +684,9 @@ fn incremental_commit_matches_full_rebuild() {
     backend.commit("initial commit").expect("initial commit");
 
     // Modify one file
-    backend.write_file("a.txt", b"hello updated").expect("update a");
+    backend
+        .write_file("a.txt", b"hello updated")
+        .expect("update a");
 
     // Do a full rebuild commit to get the expected tree
     let full_commit_id = backend.commit("full rebuild").expect("full commit");
@@ -697,13 +699,17 @@ fn incremental_commit_matches_full_rebuild() {
     assert_eq!(content, b"hello updated");
 
     // Now reset: write different content and test incremental
-    backend.write_file("a.txt", b"hello incremental").expect("update a again");
+    backend
+        .write_file("a.txt", b"hello incremental")
+        .expect("update a again");
     let incr_commit_id = backend
         .commit_incremental("incremental commit", &["a.txt".to_string()])
         .expect("incremental commit");
 
     // Verify the file content is correct
-    let content = backend.read_file("a.txt").expect("read a after incremental");
+    let content = backend
+        .read_file("a.txt")
+        .expect("read a after incremental");
     assert_eq!(content, b"hello incremental");
 
     // Verify other files are unchanged
@@ -712,7 +718,10 @@ fn incremental_commit_matches_full_rebuild() {
     let content_c = backend.read_file("dir/c.txt").expect("read c");
     assert_eq!(content_c, b"nested");
 
-    assert_ne!(full_commit_id, incr_commit_id, "should be different commits");
+    assert_ne!(
+        full_commit_id, incr_commit_id,
+        "should be different commits"
+    );
 }
 
 #[test]
@@ -729,7 +738,9 @@ fn incremental_commit_identical_tree_oid() {
     backend.commit("initial").expect("initial commit");
 
     // Modify file
-    backend.write_file("x.txt", b"foo-modified").expect("modify x");
+    backend
+        .write_file("x.txt", b"foo-modified")
+        .expect("modify x");
 
     // Do incremental commit
     let incr_id = backend
@@ -737,7 +748,9 @@ fn incremental_commit_identical_tree_oid() {
         .expect("incremental");
 
     // Now modify back and do full commit to compare
-    backend.write_file("x.txt", b"foo-modified-2").expect("modify x again");
+    backend
+        .write_file("x.txt", b"foo-modified-2")
+        .expect("modify x again");
     let full_id = backend.commit("full").expect("full commit");
 
     // Both should produce valid commits
@@ -761,8 +774,12 @@ fn incremental_commit_deep_directory_change() {
     backend.create_dir("a").expect("create a");
     backend.create_dir("a/b").expect("create a/b");
     backend.create_dir("a/b/c").expect("create a/b/c");
-    backend.write_file("a/b/c/d.txt", b"deep").expect("write deep");
-    backend.write_file("a/b/e.txt", b"sibling").expect("write sibling");
+    backend
+        .write_file("a/b/c/d.txt", b"deep")
+        .expect("write deep");
+    backend
+        .write_file("a/b/e.txt", b"sibling")
+        .expect("write sibling");
     backend.write_file("top.txt", b"top").expect("write top");
     backend.commit("initial").expect("initial commit");
 
@@ -792,7 +809,9 @@ fn incremental_commit_file_deletion() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("keep.txt", b"keep me").expect("write keep");
+    backend
+        .write_file("keep.txt", b"keep me")
+        .expect("write keep");
     backend
         .write_file("delete-me.txt", b"goodbye")
         .expect("write delete-me");
@@ -821,7 +840,9 @@ fn incremental_commit_new_file_in_new_directory() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("existing.txt", b"exists").expect("write existing");
+    backend
+        .write_file("existing.txt", b"exists")
+        .expect("write existing");
     backend.commit("initial").expect("initial commit");
 
     // Create a new directory with a new file
@@ -852,7 +873,9 @@ fn incremental_commit_root_file_change() {
 
     backend.write_file("root.txt", b"v1").expect("write root");
     backend.create_dir("sub").expect("create sub");
-    backend.write_file("sub/other.txt", b"other").expect("write other");
+    backend
+        .write_file("sub/other.txt", b"other")
+        .expect("write other");
     backend.commit("initial").expect("initial commit");
 
     backend.write_file("root.txt", b"v2").expect("update root");
@@ -874,7 +897,9 @@ fn incremental_commit_falls_back_on_initial_commit() {
     fix.init_repo();
     let backend = GitBackend::open(&fix.config()).expect("open backend");
 
-    backend.write_file("file.txt", b"content").expect("write file");
+    backend
+        .write_file("file.txt", b"content")
+        .expect("write file");
 
     // This is the first commit — no parent, so incremental should fall back to full
     let commit_id = backend
@@ -904,7 +929,9 @@ fn incremental_commit_performance_many_files() {
             .write_file(&path, format!("content-{}", i).as_bytes())
             .expect("write file");
     }
-    backend.commit("initial with 500 files").expect("initial commit");
+    backend
+        .commit("initial with 500 files")
+        .expect("initial commit");
 
     // Change just one file
     backend

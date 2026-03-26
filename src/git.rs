@@ -983,7 +983,12 @@ impl GitBackend {
                 } else {
                     // Dirty file — re-read from disk
                     self.build_entry_from_workdir(
-                        repo, &name, &child_rel, &entry, ft, &mut entries,
+                        repo,
+                        &name,
+                        &child_rel,
+                        &entry,
+                        ft,
+                        &mut entries,
                     )?;
                 }
             }
