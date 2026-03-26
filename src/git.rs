@@ -1,6 +1,9 @@
 //! Git backend for gitoxide-fs.
 //!
-//! Wraps gitoxide (gix) to provide the git operations needed by the filesystem.
+//! Wraps gitoxide (`gix`) to provide the git operations needed by the
+//! filesystem: file I/O, commits, branching, diffs, and history.
+//!
+//! The central type is [`GitBackend`], which manages a single git repository.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
@@ -49,6 +52,25 @@ pub enum ChangeOperation {
 }
 
 /// A commit in the git history.
+///
+/// Returned by [`GitBackend::log`]. Each entry represents one git commit.
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> gitoxide_fs::Result<()> {
+/// # let dir = tempfile::tempdir().unwrap();
+/// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+/// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+/// # backend.write_file("f.txt", b"hi")?;
+/// # backend.commit("init")?;
+/// let log = backend.log(Some(1))?;
+/// if let Some(entry) = log.first() {
+///     println!("{} by {} — {}", &entry.id[..8], entry.author, entry.message);
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
     /// The commit's hex OID.
@@ -63,7 +85,33 @@ pub struct CommitInfo {
     pub parent_ids: Vec<String>,
 }
 
-/// The git backend that manages the repository.
+/// The git backend that manages a single repository.
+///
+/// `GitBackend` is the core workhorse of gitoxide-fs. It provides:
+/// * File I/O: [`write_file`](Self::write_file), [`read_file`](Self::read_file),
+///   [`delete_file`](Self::delete_file), [`list_dir`](Self::list_dir)
+/// * Commits: [`commit`](Self::commit), [`commit_incremental`](Self::commit_incremental)
+/// * Branching: [`create_branch`](Self::create_branch),
+///   [`checkout_branch`](Self::checkout_branch)
+/// * History: [`log`](Self::log), [`diff`](Self::diff)
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> gitoxide_fs::Result<()> {
+/// let dir = tempfile::tempdir().unwrap();
+/// let config = gitoxide_fs::Config::new(
+///     dir.path().to_path_buf(),
+///     std::path::PathBuf::new(),
+/// );
+/// let backend = gitoxide_fs::GitBackend::open(&config)?;
+///
+/// backend.write_file("notes.txt", b"buy milk")?;
+/// let id = backend.commit("Add shopping list")?;
+/// assert_eq!(backend.read_file("notes.txt")?, b"buy milk");
+/// # Ok(())
+/// # }
+/// ```
 pub struct GitBackend {
     repo_path: PathBuf,
     config: Config,
@@ -74,7 +122,22 @@ pub struct GitBackend {
     dirty_files: Mutex<Vec<String>>,
 }
 
-/// A directory entry.
+/// A directory entry returned by [`GitBackend::list_dir`].
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> gitoxide_fs::Result<()> {
+/// # let dir = tempfile::tempdir().unwrap();
+/// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+/// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+/// backend.write_file("a.txt", b"aaa")?;
+/// backend.write_file("b.txt", b"bbb")?;
+/// let entries = backend.list_dir("")?;
+/// assert!(entries.iter().any(|e| e.name == "a.txt"));
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct DirEntry {
     /// Entry name (not the full path).
@@ -98,7 +161,21 @@ pub enum FileType {
     Symlink,
 }
 
-/// File metadata (stat information).
+/// File metadata (stat information) returned by [`GitBackend::stat`].
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> gitoxide_fs::Result<()> {
+/// # let dir = tempfile::tempdir().unwrap();
+/// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+/// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+/// backend.write_file("f.txt", b"data")?;
+/// let stat = backend.stat("f.txt")?;
+/// assert_eq!(stat.size, 4);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct FileStat {
     /// Type of the file.
@@ -153,6 +230,24 @@ impl GitBackend {
     // ========================== Constructors ==============================
 
     /// Open or initialize a git repository based on the config.
+    ///
+    /// If the path contains an existing repository it is opened; otherwise
+    /// a new repository is initialized via `git init`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let config = gitoxide_fs::Config::new(
+    ///     dir.path().to_path_buf(),
+    ///     std::path::PathBuf::new(),
+    /// );
+    /// let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// assert_eq!(backend.repo_path(), dir.path());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn open(config: &Config) -> Result<Self> {
         let path = &config.repo_path;
         let repo = if path.join(".git").exists() || path.join("HEAD").exists() {
@@ -356,6 +451,27 @@ impl GitBackend {
     // ====================== File operations ==============================
 
     /// Read a file from the working tree.
+    ///
+    /// Returns the raw bytes. The path is relative to the repository root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`] if the file does not exist, or
+    /// [`Error::IsADirectory`] if the path points to a directory.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("greeting.txt", b"hello")?;
+    /// let data = backend.read_file("greeting.txt")?;
+    /// assert_eq!(data, b"hello");
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         self.validate_file_path(path)?;
         if is_git_internal(path) {
@@ -373,6 +489,24 @@ impl GitBackend {
     }
 
     /// Write a file to the working tree.
+    ///
+    /// Creates or overwrites the file at `path` (relative to repo root).
+    /// The parent directory must already exist. When auto-commit is enabled
+    /// in the config, the file may be committed automatically based on
+    /// debounce and batch settings.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("doc.md", b"# Title\n\nContent here.")?;
+    /// assert_eq!(backend.read_file("doc.md")?, b"# Title\n\nContent here.");
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn write_file(&self, path: &str, content: &[u8]) -> Result<()> {
         self.check_writable()?;
         self.validate_file_path(path)?;
@@ -440,6 +574,20 @@ impl GitBackend {
     }
 
     /// Delete a file from the working tree.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("tmp.txt", b"temp")?;
+    /// backend.delete_file("tmp.txt")?;
+    /// assert!(backend.read_file("tmp.txt").is_err());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn delete_file(&self, path: &str) -> Result<()> {
         self.check_writable()?;
         self.validate_file_path(path)?;
@@ -453,7 +601,22 @@ impl GitBackend {
         })
     }
 
-    /// Create a directory (tracked via .gitkeep).
+    /// Create a directory (tracked via `.gitkeep`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.create_dir("docs")?;
+    /// backend.write_file("docs/guide.md", b"# Guide")?;
+    /// let entries = backend.list_dir("docs")?;
+    /// assert_eq!(entries.len(), 1);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn create_dir(&self, path: &str) -> Result<()> {
         self.check_writable()?;
         self.validate_file_path(path)?;
@@ -534,6 +697,27 @@ impl GitBackend {
     }
 
     /// List entries in a directory.
+    ///
+    /// Pass `""` for the repository root. Returns entries sorted by name.
+    /// Internal files (`.git`, `.gitkeep`) are filtered out.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("a.txt", b"aaa")?;
+    /// backend.write_file("b.txt", b"bbb")?;
+    ///
+    /// let entries = backend.list_dir("")?;
+    /// let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    /// assert!(names.contains(&"a.txt"));
+    /// assert!(names.contains(&"b.txt"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn list_dir(&self, path: &str) -> Result<Vec<DirEntry>> {
         self.validate_path(path)?;
         let full = self.abs_path(path);
@@ -1128,7 +1312,23 @@ impl GitBackend {
     ///
     /// Always does a full working directory scan to build the tree.
     /// For incremental commits (when you know which files changed), use
-    /// `commit_incremental()` instead.
+    /// [`commit_incremental`](Self::commit_incremental) instead.
+    ///
+    /// Returns the hex OID of the newly created commit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("readme.md", b"# My Project")?;
+    /// let commit_id = backend.commit("Initial commit")?;
+    /// assert_eq!(commit_id.len(), 40); // SHA-1 hex
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn commit(&self, message: &str) -> Result<String> {
         let repo = self
             .repo
@@ -1147,6 +1347,31 @@ impl GitBackend {
     /// Only re-hashes blobs for files in `dirty_paths`, reusing unchanged subtree
     /// OIDs from the previous commit. Falls back to full rebuild when there is no
     /// previous commit (initial commit).
+    ///
+    /// This is significantly faster than [`commit`](Self::commit) for large
+    /// repositories where only a few files changed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("a.txt", b"aaa")?;
+    /// backend.write_file("b.txt", b"bbb")?;
+    /// backend.commit("initial")?;
+    ///
+    /// // Only a.txt changed — skip re-hashing b.txt
+    /// backend.write_file("a.txt", b"updated")?;
+    /// let id = backend.commit_incremental(
+    ///     "Update a.txt",
+    ///     &["a.txt".to_string()],
+    /// )?;
+    /// assert_eq!(id.len(), 40);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn commit_incremental(&self, message: &str, dirty_paths: &[String]) -> Result<String> {
         let repo = self
             .repo
@@ -1238,6 +1463,28 @@ impl GitBackend {
     // ==================== History ========================================
 
     /// Get the log of commits (reverse chronological order).
+    ///
+    /// Pass `None` for unlimited history, or `Some(n)` to get the most
+    /// recent `n` commits.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("f.txt", b"v1")?;
+    /// backend.commit("first")?;
+    /// backend.write_file("f.txt", b"v2")?;
+    /// backend.commit("second")?;
+    ///
+    /// let log = backend.log(Some(10))?;
+    /// assert_eq!(log.len(), 2);
+    /// assert!(log[0].message.starts_with("second"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn log(&self, limit: Option<usize>) -> Result<Vec<CommitInfo>> {
         let head_oid = match self.head_commit_oid() {
             Some(oid) => oid,
@@ -1302,7 +1549,28 @@ impl GitBackend {
         })
     }
 
-    /// Get diff between two commits.
+    /// Get a textual diff between two commits.
+    ///
+    /// Both `from` and `to` are hex commit OIDs. The output follows a
+    /// simplified `diff --git` format.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// backend.write_file("f.txt", b"old")?;
+    /// let c1 = backend.commit("v1")?;
+    /// backend.write_file("f.txt", b"new")?;
+    /// let c2 = backend.commit("v2")?;
+    ///
+    /// let diff = backend.diff(&c1, &c2)?;
+    /// assert!(diff.contains("f.txt"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn diff(&self, from: &str, to: &str) -> Result<String> {
         let from_oid = ObjectId::from_hex(from.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit ID '{}': {}", from, e)))?;
@@ -1452,6 +1720,22 @@ impl GitBackend {
     // ==================== Branch operations ==============================
 
     /// Get the current branch name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// # backend.write_file("f.txt", b"")?;
+    /// # backend.commit("init")?;
+    /// let branch = backend.current_branch()?;
+    /// // Typically "main" or "master" for a freshly-initialized repo
+    /// println!("On branch: {branch}");
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn current_branch(&self) -> Result<String> {
         let git_dir = self.git_dir();
         let head_path = git_dir.join("HEAD");
@@ -1501,6 +1785,26 @@ impl GitBackend {
     }
 
     /// Checkout a specific branch.
+    ///
+    /// Switches HEAD to point at the named branch. Does **not** update
+    /// the working tree — use this for programmatic branch management,
+    /// not interactive checkout.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// # backend.write_file("f.txt", b"")?;
+    /// # backend.commit("init")?;
+    /// backend.create_branch("dev")?;
+    /// backend.checkout_branch("dev")?;
+    /// assert_eq!(backend.current_branch()?, "dev");
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn checkout_branch(&self, name: &str) -> Result<()> {
         let ref_path = self.git_dir().join("refs/heads").join(name);
         if !ref_path.exists() {
@@ -1512,6 +1816,22 @@ impl GitBackend {
     }
 
     /// Create a new branch at the current HEAD.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// # let backend = gitoxide_fs::GitBackend::open(&config)?;
+    /// # backend.write_file("f.txt", b"")?;
+    /// # backend.commit("init")?;
+    /// backend.create_branch("feature-x")?;
+    /// let branches = backend.list_branches()?;
+    /// assert!(branches.contains(&"feature-x".to_string()));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn create_branch(&self, name: &str) -> Result<()> {
         let head_oid = self
             .head_commit_oid()

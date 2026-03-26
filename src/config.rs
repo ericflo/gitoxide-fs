@@ -1,10 +1,48 @@
 //! Configuration for gitoxide-fs.
+//!
+//! The [`Config`] struct controls every aspect of a gitoxide-fs mount:
+//! repository and mount paths, commit behaviour (auto-commit, debounce,
+//! batch size), fork/merge policy, and performance tuning.
+//!
+//! # Loading from TOML
+//!
+//! ```no_run
+//! use gitoxide_fs::Config;
+//! use std::path::Path;
+//!
+//! let config = Config::from_file(Path::new("gofs.toml")).unwrap();
+//! ```
+//!
+//! A minimal TOML file:
+//!
+//! ```toml
+//! repo_path = "/home/user/project"
+//! mount_point = "/mnt/work"
+//! ```
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 
 /// Main configuration for a gitoxide-fs mount.
+///
+/// # Examples
+///
+/// Create a config programmatically with defaults:
+///
+/// ```
+/// use gitoxide_fs::Config;
+/// use std::path::PathBuf;
+///
+/// let config = Config::new(
+///     PathBuf::from("/tmp/my-repo"),
+///     PathBuf::from("/mnt/work"),
+/// );
+///
+/// assert!(!config.read_only);
+/// assert!(config.commit.auto_commit);
+/// assert_eq!(config.commit.debounce_ms, 500);
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Path to the git repository.
@@ -105,6 +143,17 @@ pub struct PerformanceConfig {
 
 impl Config {
     /// Load configuration from a TOML file.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use gitoxide_fs::Config;
+    /// use std::path::Path;
+    ///
+    /// let config = Config::from_file(Path::new("gofs.toml"))
+    ///     .expect("failed to load config");
+    /// println!("Repo: {:?}", config.repo_path);
+    /// ```
     pub fn from_file(path: &std::path::Path) -> crate::Result<Self> {
         let contents = std::fs::read_to_string(path).map_err(crate::Error::Io)?;
         let config: Self =
@@ -113,6 +162,22 @@ impl Config {
     }
 
     /// Create a minimal config for the given repo and mount point.
+    ///
+    /// All other fields use sensible defaults: auto-commit enabled,
+    /// 500 ms debounce, 100-file batch limit, 256 MB cache.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use gitoxide_fs::Config;
+    /// use std::path::PathBuf;
+    ///
+    /// let config = Config::new(
+    ///     PathBuf::from("/tmp/repo"),
+    ///     PathBuf::from("/mnt/work"),
+    /// );
+    /// assert_eq!(config.performance.cache_size_bytes, 256 * 1024 * 1024);
+    /// ```
     pub fn new(repo_path: PathBuf, mount_point: PathBuf) -> Self {
         Self {
             repo_path,
@@ -126,7 +191,18 @@ impl Config {
         }
     }
 
-    /// Get the debounce duration.
+    /// Get the debounce duration as a [`Duration`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use gitoxide_fs::Config;
+    /// use std::path::PathBuf;
+    /// use std::time::Duration;
+    ///
+    /// let config = Config::new(PathBuf::from("/tmp/r"), PathBuf::from("/mnt/m"));
+    /// assert_eq!(config.debounce_duration(), Duration::from_millis(500));
+    /// ```
     pub fn debounce_duration(&self) -> Duration {
         Duration::from_millis(self.commit.debounce_ms)
     }

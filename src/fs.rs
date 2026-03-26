@@ -1018,6 +1018,36 @@ impl Filesystem for FuseHandler {
 // ===========================================================================
 
 /// The main FUSE filesystem — wraps a [`GitBackend`] and exposes it as a mountable filesystem.
+///
+/// `GitFs` is the high-level entry point for mounting a git-backed FUSE
+/// filesystem. Typical usage:
+///
+/// 1. Create a [`Config`] with repo and mount paths
+/// 2. Build a `GitFs` with [`GitFs::new`]
+/// 3. Call [`mount`](Self::mount) to start serving
+///
+/// # Examples
+///
+/// ```no_run
+/// use gitoxide_fs::{Config, GitFs};
+/// use std::path::{Path, PathBuf};
+///
+/// # fn main() -> gitoxide_fs::Result<()> {
+/// let config = Config::new(
+///     PathBuf::from("/home/user/repo"),
+///     PathBuf::from("/mnt/work"),
+/// );
+/// let fs = GitFs::new(config)?;
+///
+/// // Before mounting, you can inspect the repo via the backend
+/// let status = fs.status();
+/// println!("Branch: {}", status.branch);
+///
+/// // Mount (consumes self, runs until unmount)
+/// fs.mount(Path::new("/mnt/work"))?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct GitFs {
     config: Config,
     backend: GitBackend,
@@ -1044,6 +1074,23 @@ pub struct MountStatus {
 
 impl GitFs {
     /// Create a new GitFs instance.
+    ///
+    /// Opens (or initializes) the git repository specified in `config`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// let dir = tempfile::tempdir().unwrap();
+    /// let config = gitoxide_fs::Config::new(
+    ///     dir.path().to_path_buf(),
+    ///     std::path::PathBuf::new(),
+    /// );
+    /// let fs = gitoxide_fs::GitFs::new(config)?;
+    /// // Use fs.backend() for pre-mount operations
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(config: Config) -> Result<Self> {
         let backend = GitBackend::open(&config)?;
         Ok(Self { config, backend })
@@ -1197,6 +1244,19 @@ impl GitFs {
     }
 
     /// Get mount status information.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// let fs = gitoxide_fs::GitFs::new(config)?;
+    /// let status = fs.status();
+    /// println!("Repo: {:?}, read-only: {}", status.repo_path, status.read_only);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn status(&self) -> MountStatus {
         let branch = self.backend.current_branch().unwrap_or_default();
         MountStatus {
@@ -1211,6 +1271,23 @@ impl GitFs {
     }
 
     /// Trigger a manual checkpoint (commit all pending changes + create a named commit).
+    ///
+    /// Returns the commit OID. Use with [`rollback`](Self::rollback) to
+    /// restore to this point later.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> gitoxide_fs::Result<()> {
+    /// # let dir = tempfile::tempdir().unwrap();
+    /// # let config = gitoxide_fs::Config::new(dir.path().to_path_buf(), std::path::PathBuf::new());
+    /// let fs = gitoxide_fs::GitFs::new(config)?;
+    /// fs.backend().write_file("state.json", b"{}")?;
+    /// let cp = fs.checkpoint("before-migration")?;
+    /// println!("Checkpoint: {cp}");
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn checkpoint(&self, name: &str) -> Result<String> {
         let msg = format!("checkpoint: {}", name);
         self.backend.commit(&msg)
