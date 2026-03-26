@@ -5,7 +5,7 @@
 //!
 //! # Endpoints
 //!
-//! - `GET /health` — Returns JSON [`MountStatus`](crate::fs::MountStatus) (always 200).
+//! - `GET /health` — Returns JSON [`MountStatus`] (always 200).
 //! - `GET /health/ready` — Returns 200 if the mount is active, 503 if shutting down.
 
 use std::net::TcpListener;
