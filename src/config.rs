@@ -282,6 +282,9 @@ fn default_large_file_threshold() -> usize {
 fn default_log_level() -> String {
     "info".to_string()
 }
+/// The health sentinel filename written to the mount root.
+pub const HEALTH_SENTINEL: &str = ".gofs-health";
+
 fn default_ignore_patterns() -> Vec<String> {
     vec![
         "node_modules".to_string(),
@@ -292,5 +295,6 @@ fn default_ignore_patterns() -> Vec<String> {
         ".local".to_string(),
         ".cache".to_string(),
         "*.pyc".to_string(),
+        HEALTH_SENTINEL.to_string(),
     ]
 }

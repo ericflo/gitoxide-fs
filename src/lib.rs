@@ -68,7 +68,7 @@ pub mod fs;
 pub mod git;
 
 /// Re-export key types for convenience.
-pub use config::Config;
+pub use config::{Config, HEALTH_SENTINEL};
 pub use error::{Error, Result};
 pub use fork::ForkManager;
 pub use fs::GitFs;

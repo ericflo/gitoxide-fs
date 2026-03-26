@@ -20,7 +20,7 @@ use fuser::{
 
 use tracing::trace;
 
-use crate::config::Config;
+use crate::config::{Config, HEALTH_SENTINEL};
 use crate::error::{Error, Result};
 use crate::git::{self, GitBackend};
 
@@ -277,8 +277,12 @@ impl Filesystem for FuseHandler {
     }
 
     fn destroy(&mut self) {
-        // Flush any pending commits before shutdown
+        // Flush any pending commits before shutdown (FuseHandler.dirty)
         self.maybe_commit();
+        // Flush any pending debounced auto-commits (GitBackend.dirty_files)
+        if let Err(e) = self.backend.flush_pending_auto_commit() {
+            eprintln!("gitoxide-fs: error flushing pending auto-commits on destroy: {e}");
+        }
     }
 
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
@@ -1110,6 +1114,39 @@ pub struct MountStatus {
     pub read_only: bool,
 }
 
+/// Write the `.gofs-health` sentinel file to the **repo directory**.
+///
+/// The sentinel is a JSON file that sidecars can read to verify mount health:
+/// `{"status":"healthy","mounted_at_unix":<epoch>,"mount_point":"<path>","repo_path":"<path>"}`
+///
+/// Written to the repo dir (not the mount point) so it's accessible outside
+/// FUSE and doesn't trigger git operations through the filesystem layer.
+fn write_health_sentinel(repo_path: &Path, mount_point: &Path) {
+    let sentinel_path = repo_path.join(HEALTH_SENTINEL);
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let content = format!(
+        r#"{{"status":"healthy","mounted_at_unix":{now},"mount_point":"{}","repo_path":"{}"}}"#,
+        mount_point.display(),
+        repo_path.display()
+    );
+    if let Err(e) = std::fs::write(&sentinel_path, content.as_bytes()) {
+        eprintln!(
+            "gitoxide-fs: failed to write health sentinel at {}: {e}",
+            sentinel_path.display()
+        );
+    }
+}
+
+/// Remove the `.gofs-health` sentinel file from the repo directory.
+fn remove_health_sentinel(repo_path: &Path) {
+    let sentinel_path = repo_path.join(HEALTH_SENTINEL);
+    // Best-effort removal
+    let _ = std::fs::remove_file(&sentinel_path);
+}
+
 impl GitFs {
     /// Create a new GitFs instance.
     ///
@@ -1178,7 +1215,10 @@ impl GitFs {
         active_mounts()
             .lock()
             .map_err(|_| Error::LockPoisoned("active_mounts".into()))?
-            .insert(mount_abs, repo_path);
+            .insert(mount_abs.clone(), repo_path.clone());
+
+        // Write health sentinel so sidecars can verify mount status
+        write_health_sentinel(&repo_path, &mount_abs);
 
         // Keep the session alive — it will be cleaned up on unmount or process exit.
         // The AutoUnmount option ensures the kernel unmounts if the process dies.
@@ -1226,7 +1266,11 @@ impl GitFs {
         active_mounts()
             .lock()
             .map_err(|_| Error::LockPoisoned("active_mounts".into()))?
-            .insert(mount_abs, repo_path);
+            .insert(mount_abs.clone(), repo_path.clone());
+
+        // Write health sentinel so sidecars can verify mount status
+        write_health_sentinel(&repo_path, &mount_abs);
+
         std::mem::forget(session);
 
         Ok(())
@@ -1234,6 +1278,15 @@ impl GitFs {
 
     /// Unmount the filesystem at the given mount point.
     pub fn unmount(mount_point: &Path) -> Result<()> {
+        // Remove health sentinel from the repo directory before unmounting
+        if let Ok(mount_abs) = std::fs::canonicalize(mount_point) {
+            if let Ok(mounts) = active_mounts().lock() {
+                if let Some(repo_path) = mounts.get(&mount_abs) {
+                    remove_health_sentinel(repo_path);
+                }
+            }
+        }
+
         let mount_str = mount_point.to_string_lossy();
         // Try fusermount3 (fuse3), fusermount (fuse2), then umount as fallback
         let output = std::process::Command::new("fusermount3")

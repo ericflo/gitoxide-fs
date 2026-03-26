@@ -457,3 +457,92 @@ fn unmount_nonexistent_path() {
     let result = GitFs::unmount(std::path::Path::new("/tmp/not_a_mount"));
     assert!(result.is_err(), "unmounting non-mount path should error");
 }
+
+// =============================================================================
+// FLUSH PENDING AUTO-COMMITS ON DESTROY / EXPLICIT FLUSH
+// =============================================================================
+
+#[test]
+fn flush_pending_auto_commit_captures_debounced_writes() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.commit.auto_commit = true;
+    config.commit.debounce_ms = 60_000; // Very long debounce — won't fire on its own
+    config.commit.max_batch_size = 1000; // Large batch — won't trigger on its own
+
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // Write files — they go into dirty_files but debounce hasn't fired
+    for i in 0..5 {
+        backend
+            .write_file(&format!("pending_{i}.txt"), b"data")
+            .expect("write");
+    }
+
+    // Before flush: files should be pending (no commit yet beyond initial)
+    let log_before = backend.log(None).expect("log");
+    let count_before = log_before.len();
+
+    // Explicit flush — simulates what destroy() now does
+    let result = backend.flush_pending_auto_commit().expect("flush");
+    assert!(result.is_some(), "flush should produce a commit hash");
+
+    let log_after = backend.log(None).expect("log");
+    assert!(
+        log_after.len() > count_before,
+        "flush_pending_auto_commit should create a commit"
+    );
+
+    // Verify the commit message mentions auto-commit
+    assert!(
+        log_after[0].message.contains("Auto-commit"),
+        "flush commit message should mention auto-commit, got: {}",
+        log_after[0].message
+    );
+}
+
+#[test]
+fn flush_pending_auto_commit_noop_when_empty() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.commit.auto_commit = true;
+    config.commit.debounce_ms = 60_000;
+
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // No writes — flush should return None
+    let result = backend.flush_pending_auto_commit().expect("flush");
+    assert!(result.is_none(), "flush with no pending writes should be None");
+}
+
+// =============================================================================
+// HEALTH SENTINEL
+// =============================================================================
+
+#[test]
+fn health_sentinel_in_default_ignore_patterns() {
+    let config = gitoxide_fs::Config::new(
+        std::path::PathBuf::from("/tmp/r"),
+        std::path::PathBuf::from("/tmp/m"),
+    );
+    assert!(
+        config.ignore_patterns.contains(&gitoxide_fs::HEALTH_SENTINEL.to_string()),
+        ".gofs-health should be in default ignore patterns"
+    );
+}
+
+#[test]
+fn health_sentinel_ignored_by_backend() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let config = fix.config();
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // The sentinel file should be treated as ignored
+    assert!(
+        backend.is_ignored(gitoxide_fs::HEALTH_SENTINEL).unwrap_or(false),
+        ".gofs-health should be ignored by the backend"
+    );
+}
