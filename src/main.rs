@@ -11,6 +11,7 @@ use gitoxide_fs::config::{Config, MergeStrategy};
 use gitoxide_fs::fork::ForkManager;
 use gitoxide_fs::fs::GitFs;
 use gitoxide_fs::git::GitBackend;
+use gitoxide_fs::health::HealthServer;
 
 #[derive(Parser)]
 #[command(
@@ -65,6 +66,17 @@ enum Commands {
         /// but writes will NOT trigger auto-commits.
         #[arg(long, value_delimiter = ',')]
         ignore: Option<Vec<String>>,
+
+        /// Start an HTTP health server on this port.
+        ///
+        /// Exposes `/health` (JSON mount status) and `/health/ready`
+        /// (200/503 readiness probe) for orchestrator integration.
+        #[arg(long)]
+        health_port: Option<u16>,
+
+        /// Start an HTTP health server on a Unix domain socket.
+        #[arg(long)]
+        health_socket: Option<PathBuf>,
     },
 
     /// Unmount a gitoxide-fs filesystem.
@@ -206,6 +218,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             no_auto_commit,
             verbose,
             ignore,
+            health_port,
+            health_socket,
         } => {
             let mut config = if let Some(path) = config_path {
                 Config::from_file(&path)?
@@ -238,13 +252,31 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 mountpoint.display()
             );
 
-            let gitfs = GitFs::new(config)?;
+            let gitfs = GitFs::new(config.clone())?;
             gitfs.mount(&mountpoint)?;
 
             println!(
                 "Mounted successfully. Use 'gofs unmount {}' to unmount.",
                 mountpoint.display()
             );
+
+            // Start health server if requested
+            let _health_server = if let Some(port) = health_port {
+                Some(HealthServer::start_on_port(port, &config)?)
+            } else if let Some(ref socket_path) = health_socket {
+                #[cfg(unix)]
+                {
+                    Some(HealthServer::start_on_socket(socket_path, &config)?)
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = socket_path;
+                    eprintln!("Warning: --health-socket is not supported on this platform");
+                    None
+                }
+            } else {
+                None
+            };
 
             // If not daemonized, block until Ctrl+C for graceful unmount
             if !daemon {
