@@ -1,12 +1,14 @@
-//! Tests for .gitignore hardening and large file bypass in the commit path.
+//! Tests for .gitignore hardening and large-file pointer filing in the commit path.
 //!
-//! Verifies that gitignored files and files exceeding large_file_threshold
-//! are written to the working tree but excluded from git commits.
+//! Verifies that gitignored files are excluded from commits while oversized files
+//! are committed as blob-backed pointer files.
 
 mod common;
 
 use common::TestFixture;
+use gitoxide_fs::blobstore::BlobStore;
 use gitoxide_fs::GitBackend;
+use tempfile::TempDir;
 
 // =============================================================================
 // GITIGNORE COMMIT FILTERING
@@ -117,12 +119,13 @@ fn normal_files_still_committed() {
 // =============================================================================
 
 #[test]
-fn large_file_excluded_from_commit() {
+fn large_file_pointer_filed_in_commit() {
     let fix = TestFixture::new();
     fix.init_repo();
+    let blob_dir = TempDir::new().expect("create blob dir");
     let mut config = fix.config();
-    // Set a very low threshold for testing: 100 bytes
     config.performance.large_file_threshold = 100;
+    config.performance.blob_store_path = blob_dir.path().to_path_buf();
     let backend = GitBackend::open(&config).expect("open backend");
 
     // Write a small file (under threshold)
@@ -144,14 +147,22 @@ fn large_file_excluded_from_commit() {
         .expect("small file should be in commit");
     assert_eq!(content, b"tiny");
 
-    // Large file should exist on disk but NOT in the commit
-    let on_disk = backend.read_file("large.bin").expect("large file on disk");
-    assert_eq!(on_disk.len(), 200);
+    let hydrated = backend.read_file("large.bin").expect("large file on disk");
+    assert_eq!(hydrated, large_content);
 
-    let result = backend.read_file_at_commit("large.bin", &commit_id);
+    let committed = backend
+        .read_file_at_commit("large.bin", &commit_id)
+        .expect("large file pointer should be committed");
+    let pointer = BlobStore::parse_pointer(&committed).expect("parse committed pointer");
+    assert_eq!(pointer.size, 200);
+    let blob_path = blob_dir
+        .path()
+        .join(&pointer.sha256[..2])
+        .join(&pointer.sha256[2..4])
+        .join(&pointer.sha256);
     assert!(
-        result.is_err(),
-        "large file should NOT be in the commit tree"
+        blob_path.exists(),
+        "blob should be written to external store"
     );
 }
 
@@ -223,11 +234,13 @@ fn gitignored_file_excluded_from_incremental_commit() {
 }
 
 #[test]
-fn large_file_excluded_from_incremental_commit() {
+fn large_file_pointer_filed_in_incremental_commit() {
     let fix = TestFixture::new();
     fix.init_repo();
+    let blob_dir = TempDir::new().expect("create blob dir");
     let mut config = fix.config();
     config.performance.large_file_threshold = 50;
+    config.performance.blob_store_path = blob_dir.path().to_path_buf();
     let backend = GitBackend::open(&config).expect("open backend");
 
     backend.write_file("small.txt", b"ok").expect("write small");
@@ -250,10 +263,9 @@ fn large_file_excluded_from_incremental_commit() {
         .expect("small2.txt in commit");
     assert_eq!(content, b"also ok");
 
-    // big.dat should NOT be in the commit
-    let result = backend.read_file_at_commit("big.dat", &commit_id);
-    assert!(
-        result.is_err(),
-        "large file should NOT be in incremental commit"
-    );
+    let committed = backend
+        .read_file_at_commit("big.dat", &commit_id)
+        .expect("large file pointer should be committed");
+    let pointer = BlobStore::parse_pointer(&committed).expect("parse committed pointer");
+    assert_eq!(pointer.size, 100);
 }

@@ -61,6 +61,7 @@
 //! | [`GitFs`] | FUSE filesystem — mount/unmount, checkpoint, rollback |
 //! | [`Error`] | Unified error type with FUSE `errno` mapping |
 
+pub mod blobstore;
 pub mod config;
 pub mod error;
 pub mod fork;

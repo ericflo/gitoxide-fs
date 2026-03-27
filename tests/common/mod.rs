@@ -7,6 +7,7 @@ use tempfile::TempDir;
 pub struct TestFixture {
     pub repo_dir: TempDir,
     pub mount_dir: TempDir,
+    pub blob_dir: TempDir,
 }
 
 impl TestFixture {
@@ -15,6 +16,7 @@ impl TestFixture {
         Self {
             repo_dir: TempDir::new().expect("failed to create temp repo dir"),
             mount_dir: TempDir::new().expect("failed to create temp mount dir"),
+            blob_dir: TempDir::new().expect("failed to create temp blob dir"),
         }
     }
 
@@ -28,10 +30,12 @@ impl TestFixture {
 
     /// Create a Config pointing at this fixture's paths.
     pub fn config(&self) -> gitoxide_fs::Config {
-        gitoxide_fs::Config::new(
+        let mut config = gitoxide_fs::Config::new(
             self.repo_dir.path().to_path_buf(),
             self.mount_dir.path().to_path_buf(),
-        )
+        );
+        config.performance.blob_store_path = self.blob_dir.path().to_path_buf();
+        config
     }
 
     /// Initialize a git repo in the repo directory.

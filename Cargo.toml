@@ -43,6 +43,7 @@ crossbeam-channel = "0.5"
 
 # Byte handling
 bytes = "1"
+sha2 = "0.10"
 
 # Error handling
 thiserror = "2"

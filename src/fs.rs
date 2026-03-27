@@ -224,29 +224,12 @@ impl FuseHandler {
 
     /// Check if a path should be excluded from git commits.
     ///
-    /// Returns `true` if the path is gitignored or exceeds the large file threshold.
+    /// Large files are pointer-filed by the backend, so only ignored paths skip commits.
     fn should_skip_commit(&self, path: &str) -> bool {
         // Check .gitignore
         if let Ok(true) = self.backend.is_ignored(path) {
             trace!(path, "skipping commit: path is gitignored");
             return true;
-        }
-
-        // Check large file threshold
-        let threshold = self.config.performance.large_file_threshold;
-        if threshold > 0 {
-            let abs_path = self.config.repo_path.join(path);
-            if let Ok(meta) = std::fs::metadata(&abs_path) {
-                if meta.len() as usize > threshold {
-                    trace!(
-                        path,
-                        size = meta.len(),
-                        threshold,
-                        "skipping commit: file exceeds large_file_threshold"
-                    );
-                    return true;
-                }
-            }
         }
 
         false

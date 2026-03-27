@@ -76,6 +76,14 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
 
+        /// Maximum file size before content is stored as a blob-backed pointer file.
+        #[arg(long)]
+        large_file_threshold: Option<usize>,
+
+        /// Root directory for externally stored large-file blobs.
+        #[arg(long)]
+        blob_store_path: Option<PathBuf>,
+
         /// Comma-separated ignore patterns (overrides defaults).
         ///
         /// Files matching these patterns can still be read and written,
@@ -246,6 +254,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             debounce_ms,
             no_auto_commit,
             verbose,
+            large_file_threshold,
+            blob_store_path,
             ignore,
             health_port,
             health_socket,
@@ -267,6 +277,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
             if verbose {
                 config.log_level = "debug".to_string();
+            }
+            if let Some(threshold) = large_file_threshold {
+                config.performance.large_file_threshold = threshold;
+            }
+            if let Some(path) = blob_store_path {
+                config.performance.blob_store_path = path;
             }
             if let Some(patterns) = ignore {
                 config.ignore_patterns = patterns;

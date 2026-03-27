@@ -50,6 +50,15 @@ fn config_default_large_file_threshold() {
 }
 
 #[test]
+fn config_default_blob_store_path() {
+    let config = Config::new(PathBuf::from("/tmp/r"), PathBuf::from("/tmp/m"));
+    assert_eq!(
+        config.performance.blob_store_path,
+        PathBuf::from("/data/blobs")
+    );
+}
+
+#[test]
 fn config_debounce_duration() {
     let config = Config::new(PathBuf::from("/tmp/r"), PathBuf::from("/tmp/m"));
     assert_eq!(
@@ -90,6 +99,7 @@ merge_strategy = "Ours"
 cache_size_bytes = 134217728
 worker_threads = 8
 large_file_threshold = 5242880
+blob_store_path = "/tmp/blob-store"
 "#,
     )
     .expect("write config file");
@@ -101,6 +111,10 @@ large_file_threshold = 5242880
     assert_eq!(config.commit.max_batch_size, 50);
     assert_eq!(config.commit.author_name, "Test Agent");
     assert_eq!(config.performance.worker_threads, 8);
+    assert_eq!(
+        config.performance.blob_store_path,
+        PathBuf::from("/tmp/blob-store")
+    );
     assert_eq!(config.fork.merge_strategy, MergeStrategy::Ours);
 }
 
