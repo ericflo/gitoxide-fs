@@ -21,6 +21,7 @@ use gix::ObjectId;
 
 use tracing::trace;
 
+use crate::blobstore::{BlobStore, PointerFile};
 use crate::config::Config;
 use crate::error::{Error, Result};
 
@@ -308,6 +309,10 @@ impl GitBackend {
         }
     }
 
+    fn blob_store(&self) -> BlobStore {
+        BlobStore::new(self.config.performance.blob_store_path.clone())
+    }
+
     /// Path to the .git directory.
     fn git_dir(&self) -> PathBuf {
         self.repo_path.join(".git")
@@ -450,6 +455,85 @@ impl GitBackend {
         metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH)
     }
 
+    fn parse_pointer_file(&self, content: &[u8]) -> Option<PointerFile> {
+        BlobStore::parse_pointer(content)
+    }
+
+    fn maybe_pointerize_content(&self, path: &str, content: &[u8]) -> Result<Vec<u8>> {
+        if self.parse_pointer_file(content).is_some() {
+            return Ok(content.to_vec());
+        }
+
+        let threshold = self.config.performance.large_file_threshold;
+        if threshold == 0 || content.len() <= threshold {
+            return Ok(content.to_vec());
+        }
+
+        let original_name = Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(path);
+        let pointer = self.blob_store().store_bytes(original_name, content)?;
+        Ok(pointer.to_bytes())
+    }
+
+    fn cleanup_blob_if_orphaned(&self, sha256: &str, skip_path: Option<&Path>) -> Result<()> {
+        if self.repo_references_blob(sha256, skip_path)? {
+            return Ok(());
+        }
+        self.blob_store().delete_blob(sha256)
+    }
+
+    fn repo_references_blob(&self, sha256: &str, skip_path: Option<&Path>) -> Result<bool> {
+        self.repo_references_blob_in_dir(&self.repo_path, sha256, skip_path)
+    }
+
+    fn repo_references_blob_in_dir(
+        &self,
+        dir: &Path,
+        sha256: &str,
+        skip_path: Option<&Path>,
+    ) -> Result<bool> {
+        if !dir.exists() {
+            return Ok(false);
+        }
+
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.file_name().is_some_and(|name| name == ".git") {
+                continue;
+            }
+            if skip_path.is_some_and(|skip| skip == path) {
+                continue;
+            }
+
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                if self.repo_references_blob_in_dir(&path, sha256, skip_path)? {
+                    return Ok(true);
+                }
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+
+            let content = match fs::read(&path) {
+                Ok(content) => content,
+                Err(_) => continue,
+            };
+            if self
+                .parse_pointer_file(&content)
+                .is_some_and(|pointer| pointer.sha256 == sha256)
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
     // ====================== File operations ==============================
 
     /// Read a file from the working tree.
@@ -484,10 +568,16 @@ impl GitBackend {
         if full.is_dir() {
             return Err(Error::IsADirectory(path.to_string()));
         }
-        fs::read(&full).map_err(|e| match e.kind() {
+        let content = fs::read(&full).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => Error::NotFound(path.to_string()),
             _ => Error::Io(e),
-        })
+        })?;
+
+        if let Some(pointer) = self.parse_pointer_file(&content) {
+            return self.blob_store().read_blob(&pointer.sha256);
+        }
+
+        Ok(content)
     }
 
     /// Write a file to the working tree.
@@ -516,6 +606,13 @@ impl GitBackend {
             return Err(Error::PermissionDenied(".git access denied".into()));
         }
         let full = self.abs_path(path);
+        let previous_pointer = if full.is_file() {
+            fs::read(&full)
+                .ok()
+                .and_then(|bytes| self.parse_pointer_file(&bytes))
+        } else {
+            None
+        };
         // Check if path is a directory
         if full.is_dir() {
             return Err(Error::IsADirectory(path.to_string()));
@@ -529,7 +626,15 @@ impl GitBackend {
                 )));
             }
         }
-        fs::write(&full, content).map_err(Error::Io)?;
+        let stored_content = self.maybe_pointerize_content(path, content)?;
+        fs::write(&full, &stored_content).map_err(Error::Io)?;
+
+        if let Some(pointer) = previous_pointer {
+            let new_pointer_hash = self.parse_pointer_file(&stored_content).map(|p| p.sha256);
+            if new_pointer_hash.as_deref() != Some(pointer.sha256.as_str()) {
+                self.cleanup_blob_if_orphaned(&pointer.sha256, None)?;
+            }
+        }
 
         // Auto-commit logic
         if self.config.commit.auto_commit {
@@ -591,10 +696,17 @@ impl GitBackend {
             return Err(Error::PermissionDenied(".git access denied".into()));
         }
         let full = self.abs_path(path);
+        let pointer = fs::read(&full)
+            .ok()
+            .and_then(|bytes| self.parse_pointer_file(&bytes));
         fs::remove_file(&full).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => Error::NotFound(path.to_string()),
             _ => Error::Io(e),
-        })
+        })?;
+        if let Some(pointer) = pointer {
+            self.cleanup_blob_if_orphaned(&pointer.sha256, Some(&full))?;
+        }
+        Ok(())
     }
 
     /// Create a directory (tracked via `.gitkeep`).
@@ -743,10 +855,21 @@ impl GitBackend {
             } else {
                 FileType::RegularFile
             };
+            let size = if file_type == FileType::RegularFile {
+                match fs::read(entry.path())
+                    .ok()
+                    .and_then(|bytes| self.parse_pointer_file(&bytes))
+                {
+                    Some(pointer) => pointer.size,
+                    None => metadata.len(),
+                }
+            } else {
+                metadata.len()
+            };
             entries.push(DirEntry {
                 name,
                 file_type,
-                size: metadata.len(),
+                size,
                 mode: Self::unix_mode(&metadata),
             });
         }
@@ -773,9 +896,21 @@ impl GitBackend {
             FileType::RegularFile
         };
         let ctime = Self::ctime_from_metadata(&metadata);
+        let size = if metadata.is_file() {
+            match fs::read(&full)
+                .ok()
+                .and_then(|bytes| self.parse_pointer_file(&bytes))
+            {
+                Some(pointer) => pointer.size,
+                None => metadata.len(),
+            }
+        } else {
+            metadata.len()
+        };
+
         Ok(FileStat {
             file_type,
-            size: metadata.len(),
+            size,
             mode: Self::unix_mode(&metadata),
             mtime: metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
             ctime,
@@ -839,16 +974,9 @@ impl GitBackend {
     pub fn truncate_file(&self, path: &str, size: u64) -> Result<()> {
         self.check_writable()?;
         self.validate_file_path(path)?;
-        let full = self.abs_path(path);
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .open(&full)
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => Error::NotFound(path.to_string()),
-                _ => Error::Io(e),
-            })?;
-        file.set_len(size)?;
-        Ok(())
+        let mut content = self.read_file(path)?;
+        content.resize(size as usize, 0);
+        self.write_file(path, &content)
     }
 
     /// Pre-allocate space for a file.
@@ -1029,16 +1157,8 @@ impl GitBackend {
                     Ok(c) => c,
                     Err(_) => continue, // File vanished during concurrent modification
                 };
-
-                // Defense-in-depth: skip files exceeding large_file_threshold
-                let threshold = self.config.performance.large_file_threshold;
-                if threshold > 0 && content.len() > threshold {
-                    trace!(
-                        path = child_rel,
-                        size = content.len(),
-                        threshold,
-                        "build_tree: skipping large file"
-                    );
+                let content = self.maybe_pointerize_content(&child_rel, &content)?;
+                if fs::write(entry.path(), &content).is_err() {
                     continue;
                 }
 
@@ -1291,16 +1411,8 @@ impl GitBackend {
                 Ok(c) => c,
                 Err(_) => return Ok(()), // File vanished during concurrent modification
             };
-
-            // Defense-in-depth: skip files exceeding large_file_threshold
-            let threshold = self.config.performance.large_file_threshold;
-            if threshold > 0 && content.len() > threshold {
-                trace!(
-                    path = child_rel,
-                    size = content.len(),
-                    threshold,
-                    "build_entry: skipping large file"
-                );
+            let content = self.maybe_pointerize_content(child_rel, &content)?;
+            if fs::write(entry.path(), &content).is_err() {
                 return Ok(());
             }
 

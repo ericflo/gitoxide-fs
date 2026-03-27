@@ -5,8 +5,9 @@
 mod common;
 
 use common::TestFixture;
+use gitoxide_fs::blobstore::BlobStore;
 use gitoxide_fs::GitBackend;
-use std::io::Read;
+use tempfile::TempDir;
 
 // =============================================================================
 // FILE CREATION
@@ -153,6 +154,143 @@ fn create_large_file_100mb() {
         .expect("write 100MB file");
     let content = backend.read_file("large100.bin").expect("read 100MB file");
     assert_eq!(content.len(), 100 * 1024 * 1024);
+}
+
+#[test]
+fn large_write_commits_pointer_and_reads_back_original_content() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let blob_dir = TempDir::new().expect("create blob dir");
+    let mut config = fix.config();
+    config.performance.large_file_threshold = 64;
+    config.performance.blob_store_path = blob_dir.path().to_path_buf();
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    let content = vec![b'P'; 256];
+    backend
+        .write_file("video.bin", &content)
+        .expect("write large file");
+    let commit_id = backend.commit("pointer-file large write").expect("commit");
+
+    assert_eq!(
+        backend.read_file("video.bin").expect("hydrate read"),
+        content,
+        "reads should return original blob content"
+    );
+
+    let pointer_on_disk = std::fs::read(fix.repo_path().join("video.bin")).expect("read pointer");
+    let pointer = BlobStore::parse_pointer(&pointer_on_disk).expect("parse pointer on disk");
+    let blob_path = blob_dir
+        .path()
+        .join(&pointer.sha256[..2])
+        .join(&pointer.sha256[2..4])
+        .join(&pointer.sha256);
+    assert!(
+        blob_path.exists(),
+        "blob should exist in content-addressed store"
+    );
+
+    let committed = backend
+        .read_file_at_commit("video.bin", &commit_id)
+        .expect("pointer file should be committed");
+    let committed_pointer = BlobStore::parse_pointer(&committed).expect("parse committed pointer");
+    assert_eq!(committed_pointer.sha256, pointer.sha256);
+    assert_eq!(committed_pointer.size, content.len() as u64);
+}
+
+#[test]
+fn sub_threshold_write_stays_inline() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let blob_dir = TempDir::new().expect("create blob dir");
+    let mut config = fix.config();
+    config.performance.large_file_threshold = 64;
+    config.performance.blob_store_path = blob_dir.path().to_path_buf();
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    backend
+        .write_file("small.txt", b"small payload")
+        .expect("write small file");
+    let commit_id = backend.commit("small stays inline").expect("commit");
+
+    let on_disk = std::fs::read(fix.repo_path().join("small.txt")).expect("read small");
+    assert!(
+        BlobStore::parse_pointer(&on_disk).is_none(),
+        "small file should not become a pointer"
+    );
+    let committed = backend
+        .read_file_at_commit("small.txt", &commit_id)
+        .expect("small file should be committed");
+    assert_eq!(committed, b"small payload");
+    assert!(
+        std::fs::read_dir(blob_dir.path())
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(true),
+        "small files should not populate the blob store"
+    );
+}
+
+#[test]
+fn duplicate_large_content_deduplicates_by_hash() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let blob_dir = TempDir::new().expect("create blob dir");
+    let mut config = fix.config();
+    config.performance.large_file_threshold = 32;
+    config.performance.blob_store_path = blob_dir.path().to_path_buf();
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    let content = vec![b'D'; 256];
+    backend.write_file("a.bin", &content).expect("write a");
+    backend.write_file("b.bin", &content).expect("write b");
+
+    let pointer_a =
+        BlobStore::parse_pointer(&std::fs::read(fix.repo_path().join("a.bin")).unwrap())
+            .expect("parse pointer a");
+    let pointer_b =
+        BlobStore::parse_pointer(&std::fs::read(fix.repo_path().join("b.bin")).unwrap())
+            .expect("parse pointer b");
+    assert_eq!(pointer_a.sha256, pointer_b.sha256, "hashes should match");
+
+    let blob_path = blob_dir
+        .path()
+        .join(&pointer_a.sha256[..2])
+        .join(&pointer_a.sha256[2..4])
+        .join(&pointer_a.sha256);
+    assert!(blob_path.exists(), "shared blob should exist once");
+}
+
+#[test]
+fn deleting_last_pointer_cleans_up_orphaned_blob() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let blob_dir = TempDir::new().expect("create blob dir");
+    let mut config = fix.config();
+    config.performance.large_file_threshold = 32;
+    config.performance.blob_store_path = blob_dir.path().to_path_buf();
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    let content = vec![b'O'; 256];
+    backend
+        .write_file("orphan.bin", &content)
+        .expect("write large file");
+    let pointer =
+        BlobStore::parse_pointer(&std::fs::read(fix.repo_path().join("orphan.bin")).unwrap())
+            .expect("parse pointer");
+    let blob_path = blob_dir
+        .path()
+        .join(&pointer.sha256[..2])
+        .join(&pointer.sha256[2..4])
+        .join(&pointer.sha256);
+    assert!(blob_path.exists(), "blob should exist before delete");
+
+    backend
+        .delete_file("orphan.bin")
+        .expect("delete pointer file");
+    assert!(
+        !blob_path.exists(),
+        "removing the last pointer should delete the orphaned blob"
+    );
 }
 
 // =============================================================================

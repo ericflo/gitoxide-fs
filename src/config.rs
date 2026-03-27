@@ -151,6 +151,10 @@ pub struct PerformanceConfig {
     /// Maximum file size before using streaming I/O.
     #[serde(default = "default_large_file_threshold")]
     pub large_file_threshold: usize,
+
+    /// Root directory for large-file blobs.
+    #[serde(default = "default_blob_store_path")]
+    pub blob_store_path: PathBuf,
 }
 
 impl Config {
@@ -248,6 +252,7 @@ impl Default for PerformanceConfig {
             cache_size_bytes: default_cache_size(),
             worker_threads: default_workers(),
             large_file_threshold: default_large_file_threshold(),
+            blob_store_path: default_blob_store_path(),
         }
     }
 }
@@ -279,6 +284,9 @@ fn default_workers() -> usize {
 fn default_large_file_threshold() -> usize {
     10 * 1024 * 1024
 } // 10 MB
+fn default_blob_store_path() -> PathBuf {
+    PathBuf::from("/data/blobs")
+}
 fn default_log_level() -> String {
     "info".to_string()
 }
