@@ -19,7 +19,9 @@ path = "src/lib.rs"
 
 [dependencies]
 # FUSE bindings
-fuser = { version = "0.15", features = ["abi-7-31"] }
+# Disable fuser's default libfuse integration so Linux mounts use the crate's
+# pure implementation, which prefers the setuid fusermount3 helper in pods.
+fuser = { version = "0.15", default-features = false, features = ["abi-7-31"] }
 
 # Git backend (gitoxide — pure Rust git)
 gix = { version = "0.72", features = ["blocking-network-client"] }

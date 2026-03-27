@@ -8,9 +8,23 @@
 mod common;
 
 use common::TestFixture;
-use gitoxide_fs::git::FileType;
 use gitoxide_fs::{GitBackend, GitFs};
 use serial_test::serial;
+use std::fs::OpenOptions;
+
+fn require_fuse() -> bool {
+    if OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/fuse")
+        .is_err()
+    {
+        eprintln!("skipping mount integration test: /dev/fuse is not mountable");
+        return false;
+    }
+
+    true
+}
 
 // =============================================================================
 // MOUNT AND BASIC OPERATIONS
@@ -19,6 +33,9 @@ use serial_test::serial;
 #[test]
 #[serial]
 fn mount_write_file_verify_in_git() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
     let config = fix.config();
@@ -41,6 +58,9 @@ fn mount_write_file_verify_in_git() {
 #[test]
 #[serial]
 fn mount_unmount_remount_data_persists() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
     let config = fix.config();
@@ -78,6 +98,9 @@ fn mount_unmount_remount_data_persists() {
 #[test]
 #[serial]
 fn mount_read_only_rejects_writes() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
 
@@ -113,6 +136,9 @@ fn mount_read_only_rejects_writes() {
 #[test]
 #[serial]
 fn mount_two_different_repos_simultaneously() {
+    if !require_fuse() {
+        return;
+    }
     let fix1 = TestFixture::new();
     fix1.init_repo();
     let fix2 = TestFixture::new();
@@ -139,6 +165,9 @@ fn mount_two_different_repos_simultaneously() {
 #[test]
 #[serial]
 fn mount_same_repo_at_two_paths_should_error() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
     let config = fix.config();
@@ -165,6 +194,9 @@ fn mount_same_repo_at_two_paths_should_error() {
 #[test]
 #[serial]
 fn dotgit_not_visible_in_mount() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
     fix.write_repo_file("visible.txt", b"data");
@@ -200,6 +232,9 @@ fn dotgit_not_visible_in_mount() {
 #[test]
 #[serial]
 fn fuse_getattr_returns_correct_file_size() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
     fix.write_repo_file("sized.txt", b"twelve chars");
@@ -219,6 +254,9 @@ fn fuse_getattr_returns_correct_file_size() {
 #[test]
 #[serial]
 fn fuse_getattr_directory() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
 
@@ -241,6 +279,9 @@ fn fuse_getattr_directory() {
 #[test]
 #[serial]
 fn fuse_readdir_returns_correct_entries() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
     fix.write_repo_file("a.txt", b"a");
@@ -266,6 +307,9 @@ fn fuse_readdir_returns_correct_entries() {
 #[test]
 #[serial]
 fn fuse_readdir_with_subdirectories() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
     fix.write_repo_file("file.txt", b"f");
@@ -330,6 +374,9 @@ fn checkpoint_and_rollback_via_gitfs() {
 #[test]
 #[serial]
 fn mount_with_custom_options() {
+    if !require_fuse() {
+        return;
+    }
     let fix = TestFixture::new();
     fix.init_repo();
 
