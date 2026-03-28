@@ -225,6 +225,45 @@ fn dotgit_not_visible_in_mount() {
     GitFs::unmount(fix.mount_path()).expect("unmount");
 }
 
+#[test]
+#[serial]
+fn nested_git_repos_are_visible_and_removable() {
+    if !require_fuse() {
+        return;
+    }
+    let fix = TestFixture::new();
+    fix.init_repo();
+
+    let gitfs = GitFs::new(fix.config()).expect("create GitFs");
+    gitfs.mount(fix.mount_path()).expect("mount");
+
+    let nested_repo = fix.mount_path().join("nested-repo");
+    let output = std::process::Command::new("git")
+        .args(["init", "--initial-branch=main", "nested-repo"])
+        .current_dir(fix.mount_path())
+        .output()
+        .expect("init nested repo through mount");
+    assert!(output.status.success(), "git init failed: {:?}", output);
+
+    let entries: Vec<_> = std::fs::read_dir(&nested_repo)
+        .expect("read nested repo dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        entries.contains(&".git".to_string()),
+        "nested repos must expose their .git directory"
+    );
+
+    std::fs::remove_dir_all(&nested_repo).expect("remove nested repo recursively");
+    assert!(
+        !nested_repo.exists(),
+        "nested git repo should be removable through the mount"
+    );
+
+    GitFs::unmount(fix.mount_path()).expect("unmount");
+}
+
 // =============================================================================
 // FUSE GETATTR / STAT
 // =============================================================================

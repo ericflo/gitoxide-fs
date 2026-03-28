@@ -386,6 +386,27 @@ fn git_directory_is_hidden() {
 }
 
 #[test]
+fn nested_git_directory_is_visible() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    std::fs::create_dir_all(fix.repo_path().join("nested")).expect("create nested dir");
+    let output = std::process::Command::new("git")
+        .args(["init", "--initial-branch=main"])
+        .current_dir(fix.repo_path().join("nested"))
+        .output()
+        .expect("init nested git repo");
+    assert!(output.status.success(), "git init failed: {:?}", output);
+
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+    let entries = backend.list_dir("nested").expect("list nested dir");
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(
+        names.contains(&".git"),
+        "nested .git directories should remain visible"
+    );
+}
+
+#[test]
 fn reading_git_directory_should_fail() {
     let fix = TestFixture::new();
     fix.init_repo();

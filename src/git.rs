@@ -840,7 +840,7 @@ impl GitBackend {
             let entry = entry?;
             let name_os = entry.file_name();
             // Filter internal files using OsStr comparison (avoids allocation)
-            if name_os == ".git" || name_os == ".gitkeep" {
+            if name_os == ".gitkeep" || (path.is_empty() && name_os == ".git") {
                 continue;
             }
             let name = name_os
@@ -919,7 +919,13 @@ impl GitBackend {
             nlinks: metadata.nlink() as u32,
             #[cfg(not(unix))]
             nlinks: 1,
+            #[cfg(unix)]
+            uid: metadata.uid(),
+            #[cfg(not(unix))]
             uid: 0,
+            #[cfg(unix)]
+            gid: metadata.gid(),
+            #[cfg(not(unix))]
             gid: 0,
             inode: Self::inode(&metadata),
         })
