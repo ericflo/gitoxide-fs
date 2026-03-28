@@ -7,6 +7,8 @@ mod common;
 use common::TestFixture;
 use gitoxide_fs::blobstore::BlobStore;
 use gitoxide_fs::GitBackend;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use tempfile::TempDir;
 
 // =============================================================================
@@ -834,6 +836,23 @@ fn stat_directory() {
     backend.create_dir("stat_dir").expect("create dir");
     let stat = backend.stat("stat_dir").expect("stat dir");
     assert_eq!(stat.file_type, gitoxide_fs::git::FileType::Directory);
+}
+
+#[cfg(unix)]
+#[test]
+fn stat_reports_real_owner_ids() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let backend = GitBackend::open(&fix.config()).expect("open backend");
+    backend
+        .write_file("owned.txt", b"owner ids")
+        .expect("write file");
+
+    let stat = backend.stat("owned.txt").expect("stat file");
+    let metadata = std::fs::metadata(fix.repo_path().join("owned.txt")).expect("repo metadata");
+
+    assert_eq!(stat.uid, metadata.uid() as u32);
+    assert_eq!(stat.gid, metadata.gid() as u32);
 }
 
 #[test]

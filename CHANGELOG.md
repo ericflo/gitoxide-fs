@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-03-28
+
+### Fixed
+
+- **Nested Git repos inside mounts**: only hide the mount root's internal
+  `.git` directory; nested `.git` directories created by user workflows (for
+  example `git init` or failed `git clone` inside the mount) are now visible
+  and removable through the FUSE view.
+- **Unix ownership metadata**: return real `uid`/`gid` from filesystem
+  metadata instead of hardcoded `0:0`, so mounted files and directories report
+  correct ownership.
+
 ## [0.2.1] - 2026-03-28
 
 ### Fixed
