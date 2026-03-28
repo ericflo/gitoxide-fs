@@ -18,10 +18,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: gofs-linux-x86_64.tar.gz
-          - target: aarch64-unknown-linux-gnu
+            cross: true
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             archive: gofs-linux-aarch64.tar.gz
             cross: true
@@ -82,8 +83,18 @@ jobs:
       - name: Strip binary (Linux cross)
         if: matrix.cross
         run: |
-          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/gofs
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-musl)
+              strip target/${{ matrix.target }}/release/gofs
+              ;;
+            aarch64-unknown-linux-musl)
+              sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+              aarch64-linux-gnu-strip target/${{ matrix.target }}/release/gofs
+              ;;
+            *)
+              echo "No cross-strip rule for ${{ matrix.target }}"
+              ;;
+          esac
 
       - name: Generate shell completions and man page
         if: '!matrix.cross'
