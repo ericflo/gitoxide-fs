@@ -1,6 +1,6 @@
 [package]
 name = "gitoxide-fs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "A blazing-fast FUSE filesystem backed by git. Every file edit becomes a commit."
 license = "MIT"
