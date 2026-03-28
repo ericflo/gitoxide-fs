@@ -1,6 +1,6 @@
 [package]
 name = "gitoxide-fs"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "A blazing-fast FUSE filesystem backed by git. Every file edit becomes a commit."
 license = "MIT"
@@ -18,11 +18,6 @@ name = "gitoxide_fs"
 path = "src/lib.rs"
 
 [dependencies]
-# FUSE bindings
-# Disable fuser's default libfuse integration so Linux mounts use the crate's
-# pure implementation, which prefers the setuid fusermount3 helper in pods.
-fuser = { version = "0.15", default-features = false, features = ["abi-7-31"] }
-
 # Git backend (gitoxide — pure Rust git)
 gix = { version = "0.72", features = ["blocking-network-client"] }
 
@@ -69,6 +64,16 @@ tiny_http = "0.12"
 
 # Serialization (fork metadata persistence)
 serde_json = "1"
+
+# FUSE bindings — platform-conditional:
+# On Linux: disable default libfuse so mounts use fuser's pure-Rust implementation
+# (prefers the setuid fusermount3 helper in containers/pods).
+# On macOS/other: keep defaults (requires macFUSE/libfuse).
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser = { version = "0.15", default-features = false, features = ["abi-7-31"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+fuser = { version = "0.15", features = ["abi-7-31"] }
 
 [dev-dependencies]
 tempfile = "3"
