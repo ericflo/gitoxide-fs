@@ -12,6 +12,7 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
 use gix::bstr::BString;
@@ -123,6 +124,9 @@ pub struct GitBackend {
     xattrs: RwLock<HashMap<String, HashMap<String, Vec<u8>>>>,
     /// Tracks dirty files for auto-commit batching.
     dirty_files: Mutex<Vec<String>>,
+    /// Suppresses dirty-tracking when a commit operation is writing back
+    /// pointerized content to the working tree, preventing infinite loops.
+    commit_in_progress: AtomicBool,
 }
 
 /// A directory entry returned by [`GitBackend::list_dir`].
@@ -266,6 +270,7 @@ impl GitBackend {
             bare,
             xattrs: RwLock::new(HashMap::new()),
             dirty_files: Mutex::new(Vec::new()),
+            commit_in_progress: AtomicBool::new(false),
         })
     }
 
@@ -280,6 +285,7 @@ impl GitBackend {
             bare: false,
             xattrs: RwLock::new(HashMap::new()),
             dirty_files: Mutex::new(Vec::new()),
+            commit_in_progress: AtomicBool::new(false),
         })
     }
 
@@ -295,6 +301,7 @@ impl GitBackend {
             bare,
             xattrs: RwLock::new(HashMap::new()),
             dirty_files: Mutex::new(Vec::new()),
+            commit_in_progress: AtomicBool::new(false),
         })
     }
 
@@ -636,8 +643,11 @@ impl GitBackend {
             }
         }
 
-        // Auto-commit logic
-        if self.config.commit.auto_commit {
+        // Auto-commit logic — skip ignored files and writes during commit (pointerization)
+        if self.config.commit.auto_commit
+            && !self.commit_in_progress.load(Ordering::Relaxed)
+            && !self.is_ignored(path).unwrap_or(false)
+        {
             let mut dirty = self.dirty_files.lock();
             dirty.push(path.to_string());
             let batch_size = self.config.commit.max_batch_size;
@@ -1478,7 +1488,12 @@ impl GitBackend {
     /// ```
     pub fn commit(&self, message: &str) -> Result<String> {
         let repo = self.repo.lock();
-        let tree_id = self.build_tree_from_workdir(&repo, "")?;
+        // Suppress dirty-tracking while the tree builder pointerizes files,
+        // preventing write_file → dirty_files → commit → write_file loops.
+        self.commit_in_progress.store(true, Ordering::Relaxed);
+        let tree_result = self.build_tree_from_workdir(&repo, "");
+        self.commit_in_progress.store(false, Ordering::Relaxed);
+        let tree_id = tree_result?;
         let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
         let commit_id = self.write_commit_inner(&repo, tree_id, &parents, message)?;
         drop(repo);
@@ -1520,23 +1535,30 @@ impl GitBackend {
         let repo = self.repo.lock();
         let parents: Vec<ObjectId> = self.head_commit_oid().into_iter().collect();
 
-        let tree_id = if !parents.is_empty() && !dirty_paths.is_empty() {
+        // Suppress dirty-tracking while the tree builder pointerizes files.
+        self.commit_in_progress.store(true, Ordering::Relaxed);
+        let tree_result = if !parents.is_empty() && !dirty_paths.is_empty() {
             let dirty_set: HashSet<&str> = dirty_paths.iter().map(|s| s.as_str()).collect();
             let parent_obj = repo
                 .find_object(parents[0])
-                .map_err(|e| Error::Git(e.to_string()))?;
-            let parent_commit = parent_obj
-                .try_into_commit()
-                .map_err(|e| Error::Git(e.to_string()))?;
-            let prev_tree_id = parent_commit
-                .tree_id()
-                .map_err(|e| Error::Git(e.to_string()))?
-                .detach();
-            self.build_tree_incremental(&repo, "", &dirty_set, prev_tree_id)?
+                .map_err(|e| Error::Git(e.to_string()));
+            let r = parent_obj.and_then(|obj| {
+                let parent_commit = obj
+                    .try_into_commit()
+                    .map_err(|e| Error::Git(e.to_string()))?;
+                let prev_tree_id = parent_commit
+                    .tree_id()
+                    .map_err(|e| Error::Git(e.to_string()))?
+                    .detach();
+                self.build_tree_incremental(&repo, "", &dirty_set, prev_tree_id)
+            });
+            r
         } else {
             // No parent or no dirty paths — full rebuild
-            self.build_tree_from_workdir(&repo, "")?
+            self.build_tree_from_workdir(&repo, "")
         };
+        self.commit_in_progress.store(false, Ordering::Relaxed);
+        let tree_id = tree_result?;
 
         let commit_id = self.write_commit_inner(&repo, tree_id, &parents, message)?;
         drop(repo);
