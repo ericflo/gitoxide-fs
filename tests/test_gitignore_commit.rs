@@ -269,3 +269,118 @@ fn large_file_pointer_filed_in_incremental_commit() {
     let pointer = BlobStore::parse_pointer(&committed).expect("parse committed pointer");
     assert_eq!(pointer.size, 100);
 }
+
+// =============================================================================
+// AUTO-COMMIT IGNORE PATTERNS (issue #55)
+// =============================================================================
+
+#[test]
+fn ignored_file_write_does_not_trigger_auto_commit_dirty_tracking() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.commit.auto_commit = true;
+    config.commit.debounce_ms = 0; // Immediate commit on each write
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // Set up .gitignore and make initial commit
+    backend
+        .write_file(".gitignore", b"*.log\n*.db-wal\n*.db-shm\n")
+        .expect("write gitignore");
+    backend
+        .write_file("readme.txt", b"hello")
+        .expect("write readme");
+    backend.commit("initial").expect("initial commit");
+
+    // Count commits before writing ignored file
+    let log_before = backend.log(Some(100)).expect("log before");
+    let count_before = log_before.len();
+
+    // Write to an ignored file — should NOT create an auto-commit
+    backend
+        .write_file("debug.log", b"log output")
+        .expect("write ignored file");
+
+    let log_after = backend.log(Some(100)).expect("log after");
+    let count_after = log_after.len();
+
+    assert_eq!(
+        count_before, count_after,
+        "writing an ignored file should not create an auto-commit (before={}, after={})",
+        count_before, count_after
+    );
+}
+
+#[test]
+fn non_ignored_file_still_auto_commits() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.commit.auto_commit = true;
+    config.commit.debounce_ms = 0; // Immediate commit on each write
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    // Set up .gitignore and make initial commit
+    backend
+        .write_file(".gitignore", b"*.log\n")
+        .expect("write gitignore");
+    backend
+        .write_file("readme.txt", b"hello")
+        .expect("write readme");
+    backend.commit("initial").expect("initial commit");
+
+    let log_before = backend.log(Some(100)).expect("log before");
+    let count_before = log_before.len();
+
+    // Write a non-ignored file — SHOULD create an auto-commit
+    backend
+        .write_file("data.txt", b"important data")
+        .expect("write non-ignored file");
+
+    let log_after = backend.log(Some(100)).expect("log after");
+    let count_after = log_after.len();
+
+    assert_eq!(
+        count_before + 1,
+        count_after,
+        "writing a non-ignored file should create exactly one auto-commit"
+    );
+}
+
+#[test]
+fn config_ignore_patterns_prevent_auto_commit() {
+    let fix = TestFixture::new();
+    fix.init_repo();
+    let mut config = fix.config();
+    config.commit.auto_commit = true;
+    config.commit.debounce_ms = 0;
+    config.ignore_patterns = vec!["*.db".to_string(), "*.db-wal".to_string(), "*.db-shm".to_string()];
+    let backend = GitBackend::open(&config).expect("open backend");
+
+    backend
+        .write_file("readme.txt", b"hello")
+        .expect("write readme");
+    backend.commit("initial").expect("initial commit");
+
+    let log_before = backend.log(Some(100)).expect("log before");
+    let count_before = log_before.len();
+
+    // Write files matching --ignore patterns
+    backend
+        .write_file("music.db", b"sqlite data")
+        .expect("write db");
+    backend
+        .write_file("music.db-wal", b"wal data")
+        .expect("write wal");
+    backend
+        .write_file("music.db-shm", b"shm data")
+        .expect("write shm");
+
+    let log_after = backend.log(Some(100)).expect("log after");
+    let count_after = log_after.len();
+
+    assert_eq!(
+        count_before, count_after,
+        "writing config-ignored files should not create auto-commits"
+    );
+}
