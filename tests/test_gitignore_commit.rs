@@ -354,7 +354,11 @@ fn config_ignore_patterns_prevent_auto_commit() {
     let mut config = fix.config();
     config.commit.auto_commit = true;
     config.commit.debounce_ms = 0;
-    config.ignore_patterns = vec!["*.db".to_string(), "*.db-wal".to_string(), "*.db-shm".to_string()];
+    config.ignore_patterns = vec![
+        "*.db".to_string(),
+        "*.db-wal".to_string(),
+        "*.db-shm".to_string(),
+    ];
     let backend = GitBackend::open(&config).expect("open backend");
 
     backend
